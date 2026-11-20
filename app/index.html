@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MADOS kit builder</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+</head>
+<body>
+<header>
+  <h1>MADOS kit builder</h1>
+  <div class="tools">
+    <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
+    <button id="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
+    <span class="gap"></span>
+    <button id="new" title="Start an empty build">New</button>
+    <button id="save" title="Save this build to a file">Save</button>
+    <button id="load" title="Open a saved build">Open</button>
+    <span class="gap"></span>
+    <label title="Every part, joints included, is printed this much bigger. Parts of different scales do not fit each other.">
+      Kit scale
+      <select id="scale">
+        <option value="1">1 &times; (20 mm blocks)</option>
+        <option value="1.5">1.5 &times; (30 mm blocks)</option>
+        <option value="2">2 &times; (40 mm blocks)</option>
+      </select>
+    </label>
+    <button id="custom" hidden title="Make a block, cover or hinge at a size the list does not have">Custom part&hellip;</button>
+    <button id="export" class="primary" title="Download the files to print, with a parts list">Download for printing</button>
+    <button id="help" title="How to use this">?</button>
+  </div>
+</header>
+<main>
+  <aside id="palette" aria-label="Parts">
+    <input id="search" type="search" placeholder="Find a part: hinge, 20KG, 40mm&hellip;" aria-label="Find a part">
+  </aside>
+  <section id="stage">
+    <canvas id="view"></canvas>
+    <div id="hint"></div>
+    <div id="loading">Loading parts&hellip;</div>
+    <div id="viewtools">
+      <button id="fit" title="Bring the whole build into view">Fit view</button>
+    </div>
+  </section>
+  <aside id="side">
+    <div id="selection"></div>
+    <div id="summary"></div>
+  </aside>
+</main>
+<dialog id="helpbox">
+  <h2>How to build</h2>
+  <ul>
+    <li><b>Drag a part</b> from the list on the left into the scene (the box above the list finds a part by name or number). Hold it over another part: the green outline shows where it will go. <b>Let go and it snaps in.</b></li>
+    <li>Let go over the empty floor to stand a part there.</li>
+    <li>While dragging, press <kbd>R</kbd> to spin the part and <kbd>F</kbd> to tip it over.</li>
+    <li><b>Drag a placed part</b> to move it. Hold <kbd>Shift</kbd> to move everything joined to it as well.</li>
+    <li><b>Click a part</b> to select it. <kbd>Delete</kbd> removes it, <kbd>Ctrl</kbd>+<kbd>D</kbd> makes a copy. Hinges and wrap covers show buttons to swing or fold them.</li>
+    <li>Drag the empty background to look around, scroll to zoom, right-drag to slide the view.</li>
+    <li><b>Download for printing</b> gives you one file for each kind of part, with how many of each to print.</li>
+  </ul>
+  <p class="small">Plain blocks only have sockets, so two of them need something between: a twist block, a mini block half, or a grub joiner screwed into the threaded hole in the middle of a face. Parts follow the open MADOS system by MADOS 3D (CC0). A part only goes where its plugs meet sockets the right way round, and never through another part.</p>
+  <form method="dialog"><button class="primary">Start building</button></form>
+</dialog>
+<dialog id="custombox">
+  <h2>Make a part to order</h2>
+  <p class="small">The part is built from the same plug and socket shapes as the official parts, at the size you choose.</p>
+  <div class="form">
+    <label>Kind
+      <select id="custom-kind">
+        <option value="block">Block</option>
+        <option value="twist">Twist block</option>
+        <option value="cover">Cover</option>
+        <option value="wrap">Wrap cover</option>
+        <option value="hinge">Hinge</option>
+      </select>
+    </label>
+    <label data-for="block twist cover wrap hinge">Length, mm <input name="length" type="number" min="20" max="300" step="20" value="120"></label>
+    <label data-for="block">Blocks across <input name="across_a" type="number" min="1" max="3" value="1"></label>
+    <label data-for="block">Blocks high <input name="across_b" type="number" min="1" max="3" value="1"></label>
+    <label data-for="cover">Width, mm <input name="width" type="number" min="20" max="100" step="20" value="20"></label>
+    <label data-for="wrap">Sides <input name="panels" type="number" min="2" max="4" value="3"></label>
+    <label data-for="twist cover wrap hinge" title="0 is the loosest fit, 9 the tightest">Joint strength, 0 to 9 <input name="strength" type="number" min="0" max="9" value="3"></label>
+    <label data-for="twist">Plugs on both ends <input name="double" type="checkbox"></label>
+  </div>
+  <p id="custom-status" class="small"></p>
+  <div class="row end"><button id="custom-cancel">Cancel</button><button id="custom-make" class="primary">Make it</button></div>
+</dialog>
+<input type="file" id="file" accept=".json,application/json" hidden>
+<script type="module" src="app.js"></script>
+</body>
+</html>

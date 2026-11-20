@@ -1,0 +1,5 @@
+# Only needed to make parts to order or to rebuild app/data. The builder itself needs none of these.
+build123d
+manifold3d
+trimesh
+numpy
