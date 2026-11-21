@@ -57,8 +57,9 @@ export function rotationAngle(r) {
 // ---------------------------------------------------------------- ports
 export const isPlug = (p) => p.kind !== SOCKET;
 
-// Ports of the threaded-hole joint (system "hole") also carry directions along the face: a
-// hole lists the ways a joiner's flat web can leave it (open), a stud the ways its webs go.
+// Ports of the threaded-hole joint (system "hole") and of the hollow on a plate that a
+// joiner's boss sits in (system "seat") also carry directions along the face: the hole or
+// hollow lists the ways a joiner's flat web can leave it (open), a stud the ways its webs go.
 const turned = (list, r) => list.map((v) => matVec(r, v).map((c) => Math.round(c) + 0));
 
 export function transformPort(p, pose) {
@@ -71,7 +72,7 @@ export function transformPort(p, pose) {
 const parallel = (a, b) => Math.abs(Math.abs(dot(a, b)) - 1) < 1e-4;
 const opposite = (a, b) => vecNear(a, scale(b, -1), 1e-6);
 
-const HOLE = "hole";
+const ROUND = new Set(["hole", "seat"]);        // joints that take their other half at any quarter turn
 const sameSystem = (a, b) => (a.system ?? null) === (b.system ?? null);
 
 // A stud's flat webs must leave the hole in directions the hole has open.
@@ -83,7 +84,7 @@ function webFits(a, b) {
 // A threaded hole takes its stud at any quarter turn, so its direction d does not matter.
 export function mates(a, b) {
   return isPlug(a) !== isPlug(b) && !a.passive && !b.passive && sameSystem(a, b) && vecNear(a.pos, b.pos, POS_TOL) && opposite(a.normal, b.normal)
-    && (a.system === HOLE ? webFits(a, b) : parallel(a.d, b.d));
+    && (ROUND.has(a.system) ? webFits(a, b) : parallel(a.d, b.d));
 }
 
 const posKey = (pos) => `${Math.round(pos[0] * 100)},${Math.round(pos[1] * 100)},${Math.round(pos[2] * 100)}`;
@@ -106,7 +107,7 @@ export function posesFor(movingPort, fixedPort) {
   const out = [];
   const src = frame(movingPort.normal, movingPort.d);
   const directions = [fixedPort.d, scale(fixedPort.d, -1)];
-  if (fixedPort.system === HOLE) {                       // a round hole: every quarter turn
+  if (ROUND.has(fixedPort.system)) {                     // a round hole or a plate's hollow: every quarter turn
     const side = cross(fixedPort.normal, fixedPort.d);
     directions.push(side, scale(side, -1));
   }

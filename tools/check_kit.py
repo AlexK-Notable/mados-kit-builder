@@ -32,7 +32,8 @@ def expect(cond, msg):
 
 
 def tally(ports):
-    return dict(sorted(collections.Counter((p["kind"], p["strength"]) for p in ports).items(), key=str))
+    # the plugs and sockets on faces only: threaded openings and plate hollows are joints of their own
+    return dict(sorted(collections.Counter((p["kind"], p["strength"]) for p in ports if not p.get("system")).items(), key=str))
 
 
 def allowed(n):

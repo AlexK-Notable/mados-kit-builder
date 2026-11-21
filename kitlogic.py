@@ -253,6 +253,43 @@ def hole_probe():
     return bodies[0]
 
 
+SEAT = "seat"                 # the hollow on the pointed side of a plate tile, where a plate joiner's boss sits
+ROUND = (HOLE, SEAT)          # joints that take their other half at any quarter turn
+SEAT_DEPTH = 10.0             # mm a boss goes into the hollow, from the plane of the plate's points: right through, flush with the flat side
+                              # [measured 2026-11-20: MADOS-20FC's boss slides into MADOS-20EA with 1.2 - 1.3 mm3 of interference
+                              #  until its end is level with the flat side, at every quarter turn; 0.5 mm further it is 17 - 19 mm3]
+SEAT_CLICK = (0.2, 4.0)       # mm3 of interference when a boss alone sits in a hollow, at its best quarter turn
+                              # [measured: 1.2 - 2.3 in the hollows of MADOS-20EA, 20EE and 20EN; 70 or more anywhere else on the grid]
+SEAT_FREE = 3.0               # mm3: the two-boss joiner's web has room to leave a hollow [measured: 1.2 - 1.3 with room, 112 without]
+
+
+def detect_seats(man):
+    """The hollows on the pointed side (+Z) of a plate, one over the middle of each 20 mm
+    tile, found by trying one boss of a plate joiner there, SEAT_DEPTH mm in.  Each hollow
+    lists `open`: the directions in which a joiner's tall web can leave it [measured: over
+    the plate's outer edge, 1.2 mm3; towards the next tile of the same plate, 112 mm3]."""
+    import manifold3d as m3
+    b = man.bounding_box()
+    top = b[5]
+    probe = web_probe()                                    # boss on the origin, z 0..10, its end at z = 10, web along +X
+    boss = probe ^ m3.Manifold.cube([11.6, 11.6, 10.2], True).translate([-1.0, 0, 5.0])     # the boss without its web
+
+    def clash(what, x, y, turn):
+        seat = _turn_z(turn) @ np.diag([1.0, -1.0, -1.0, 1.0])                # boss pointing down
+        seat[:3, 3] = [x, y, top - SEAT_DEPTH + 10.0]
+        return (apply(what, seat) ^ man).volume()
+    found = []
+    tile = 2 * CELL                                        # a boss also fits where four tiles of a large plate meet; only tile middles are used
+    for x in np.arange(np.ceil((b[0] - 1e-6) / tile) * tile, b[3] + 1e-6, tile):
+        for y in np.arange(np.ceil((b[1] - 1e-6) / tile) * tile, b[4] + 1e-6, tile):
+            if not SEAT_CLICK[0] < min(clash(boss, x, y, turn) for turn in (0, 90, 180, 270)) < SEAT_CLICK[1]:
+                continue
+            seat = port(SOCKET, (float(x), float(y), float(top)), (0, 0, 1), (1, 0, 0), system=SEAT)
+            seat["open"] = [[int(round(c)) for c in _turn_z(turn)[:3, 0]] for turn in (0, 90, 180, 270) if clash(probe, x, y, turn) < SEAT_FREE]
+            found.append(seat)
+    return found
+
+
 HOLE_TURNS = 12               # the grub is tried at this many turns about its axis: a thread only lines up at the right one
 WEB_PROBE = "MADOS-20FC"      # the plate-to-plate joiner: boss on the origin under z = 10, web towards +X
 WEB_CLEAR_MAX = 6.0           # mm3 [measured: 1.1 - 2.7 where the web passes, 44 where the part's inside is in the way]
@@ -354,7 +391,7 @@ def mates(a, b):
             and a.get("system") == b.get("system")
             and np.allclose(a["pos"], b["pos"], atol=POS_TOL)
             and np.allclose(np.array(a["normal"]), -np.array(b["normal"]))
-            and (_web_fits(a, b) if a.get("system") == HOLE else _parallel(a["d"], b["d"])))
+            and (_web_fits(a, b) if a.get("system") in ROUND else _parallel(a["d"], b["d"])))
 
 
 def _web_fits(a, b):
@@ -375,7 +412,7 @@ def poses_for(moving_port, fixed_port):
     src = _frame(moving_port["normal"], moving_port["d"])
     fd = np.array(fixed_port["d"], float)
     directions = [fd, -fd]
-    if fixed_port.get("system") == HOLE:                 # a round hole: every quarter turn
+    if fixed_port.get("system") in ROUND:                # a round hole or a plate's hollow: every quarter turn
         side = np.cross(np.array(fixed_port["normal"], float), fd)
         directions += [side, -side]
     for direction in directions:

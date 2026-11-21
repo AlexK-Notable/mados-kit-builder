@@ -5,6 +5,7 @@
 import * as kit from "./kit.js";
 
 const GROUND_SLACK = 0.01;   // mm a part may dip below the ground before a placement is refused
+const CORE_SLACK = 0.5;        // mm two joiners may share before they count as crossing: end to end in one channel they only touch
 const FALLBACK_REACH = 15;    // mm: a grub joiner's joint is 10 mm below the tip the cursor lands on
 const TARGET_REACH = 25;      // mm from the cursor within which joints are tried as the anchor
 const RAY_REACH = 22;         // mm from the cursor's ray within which a joint is tried when the ray touches no part
@@ -60,10 +61,33 @@ export class Scene {
     return keys;
   }
 
+  // The room a joiner fills inside the channel it sits in: boxes {min, max} in the world.
+  // Other parts are hollow there, so this is checked only between joiners.
+  coresAt(name, pose) {
+    return (this.parts.get(name).meta?.cores ?? []).map(([lo, hi]) => {
+      const a = kit.applyPose(pose, lo), b = kit.applyPose(pose, hi);
+      return { min: a.map((v, k) => Math.min(v, b[k])), max: a.map((v, k) => Math.max(v, b[k])) };
+    });
+  }
+
+  cores(exclude = []) {
+    return this.items.filter((it) => !exclude.includes(it.id)).flatMap((it) => this.coresAt(it.name, it.pose));
+  }
+
+  payloadCores(payload, pose) {
+    return payload.flatMap((m) => this.coresAt(m.name, kit.compose(pose, m.rel)));
+  }
+
+  // Would a joiner in the payload pass through a joiner that is already there?
+  crossesJoiner(payload, pose, ctx) {
+    if (!ctx.cores?.length) return false;
+    return this.payloadCores(payload, pose).some((a) => ctx.cores.some((b) => [0, 1, 2].every((k) => Math.min(a.max[k], b.max[k]) - Math.max(a.min[k], b.min[k]) > CORE_SLACK)));
+  }
+
   // Everything a drag needs to know about the parts that stay put.
   context(exclude = []) {
     const fixed = this.fixedPorts(exclude);
-    return { fixed, index: kit.buildIndex(fixed), occupied: this.occupied(exclude) };
+    return { fixed, index: kit.buildIndex(fixed), occupied: this.occupied(exclude), cores: this.cores(exclude) };
   }
 
   // ---------------------------------------------------------------- payloads
@@ -110,7 +134,7 @@ export class Scene {
   // Can the payload sit at this pose: above the ground and clear of the fixed parts.
   fits(payload, pose, ctx) {
     if (this.payloadBox(payload, pose).min[2] < -GROUND_SLACK) return false;
-    return !kit.overlaps(this.payloadVoxels(payload, pose), ctx.occupied);
+    return !kit.overlaps(this.payloadVoxels(payload, pose), ctx.occupied) && !this.crossesJoiner(payload, pose, ctx);
   }
 
   // A pose that rests the payload on the ground (z = 0) centred over (x, y), on the 5 mm grid.
@@ -194,6 +218,11 @@ export class Scene {
     const plugsHere = near.some(kit.isPlug), socketsHere = near.some((p) => !kit.isPlug(p));
     const myPlugs = mine.some(kit.isPlug), mySockets = mine.some((p) => !kit.isPlug(p));
     if (!near.length) return "There is no free joint to join onto there";
+    // a joiner that would go in, were another joiner not already through the middle of that block
+    if (this.payloadCores(payload, kit.IDENTITY).length) {
+      const blocked = kit.candidatePoses(mine, ctx.fixed, ctx.index, near).some((c) => this.crossesJoiner(payload, c.pose, ctx) && this.fits(payload, c.pose, { ...ctx, cores: [] }));
+      if (blocked) return "Another joiner is already in the way inside that block: only one can pass through the middle";
+    }
     if (!myPlugs && !plugsHere) return "Two sockets cannot join: put a part with plugs between them, such as a twist block, a Mini Block Half C or a grub joiner";
     if (!mySockets && !socketsHere) return "Two plugs cannot join: one side needs sockets";
     return "It does not fit there";

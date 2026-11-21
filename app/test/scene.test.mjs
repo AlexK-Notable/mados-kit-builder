@@ -173,15 +173,71 @@ test("a grub joiner screws into a block's face and holds a second block on it", 
   assert.ok(!again || kit.poseKey(again.pose) !== kit.poseKey(grub.pose), "a second grub does not go in the same hole");
 });
 
-test("a plate joiner only bridges holes its web can reach", () => {
-  const { scene, onFloor, dropOn } = fresh();
-  const base = onFloor("channel_60");
-  const got = dropOn("MADOS-20FC", base, [0, 0, 1]);
-  assert.ok(got, "it goes into a hole");
-  assert.equal(got.engaged, 1, "along one 60 mm block the web is blocked, so only one boss engages");
-  const bundle = onFloor("channel_40_2x2", 100, 0);
-  assert.equal(dropOn("MADOS-20FC", bundle, [0, 0, 1]).engaged, 2, "across a bundle both bosses engage");
-  assert.equal(dropOn("MADOS-20FD", bundle, [1, 0, 0]).engaged, 4);
+test("the plate joiners sit in the hollows of plates, bridge two plates, and stay out of blocks", () => {
+  const { scene, one, onFloor, dropOn, boxOf } = fresh();
+  const block = onFloor("MADOS-20BA", 200, 0);
+  assert.equal(dropOn("MADOS-20FC", block, [0, 0, 1]), null, "the strip does not go into a block");
+  assert.equal(dropOn("MADOS-20FD", block, [0, 0, 1]), null, "nor does the square");
+  const first = onFloor("MADOS-20EA");
+  const second = scene.place(one("MADOS-20EA"), { r: R0, t: [20, 0, 0] })[0];           // edge to edge: its hook goes into the first plate
+  assert.equal(scene.pieces().filter((ids) => ids.includes(first))[0].length, 2, "the two plates hook together");
+  // held over the seam between the two plates
+  const over = scene.choosePlacement(one("MADOS-20FC"), scene.context(), { hit: [10, 0, 10], normal: [0, 0, 1], viewDir: VIEW, prefR: R0 });
+  assert.equal(over.engaged, 2, "one nut in each plate");
+  const strip = { ...over, ids: scene.place(over.payload, over.pose) };
+  const g = boxOf(strip.ids[0]);
+  assert.ok(Math.abs(g.min[2]) < 1e-6 && Math.abs(g.max[2] - 10) < 1e-6, "it sits flush inside the plates' thickness");
+  assert.ok(g.max[0] - g.min[0] > 30, "and lies across both");
+  void second;
+  // along one long plate the strip's web would have to cross the ridge between tiles: one nut only
+  const long = onFloor("MADOS-20EE", 0, 100);
+  assert.equal(dropOn("MADOS-20FC", long, [0, 0, 1]).engaged, 1);
+});
+
+test("the nuts sit flush inside one block and join nothing else", () => {
+  for (const [name, depth] of [["MADOS-20FK", 20], ["MADOS-20FL", 20], ["MADOS-20FA", 7]]) {
+    const { scene, one, onFloor, dropOn, boxOf } = fresh();
+    const base = onFloor("MADOS-20BA");
+    const nut = dropOn(name, base, [0, 0, 1]);
+    assert.ok(nut, `${name} goes into the top face`);
+    const g = boxOf(nut.ids[0]);
+    assert.ok(Math.abs(g.max[2] - 20) < 1e-6, `${name} is flush with the face it went in by`);
+    assert.ok(Math.abs(g.min[2] - (20 - depth)) < 0.01, `${name} reaches ${depth} mm in`);
+    assert.equal(scene.choosePlacement(one("MADOS-20BA"), scene.context(), { hit: [0, 0, 20], normal: [0, 0, 1], viewDir: VIEW, prefR: R0 }), null, `no block hangs on ${name}`);
+  }
+});
+
+test("only one joiner passes through the middle of a block", () => {
+  const { scene, one, onFloor, dropOn, boxOf } = fresh();
+  const base = onFloor("MADOS-20BA");
+  assert.ok(dropOn("MADOS-20GE", base, [0, 0, 1]), "a grub half into the top");
+  const side = [boxOf(base).max[0], 0, 10];
+  for (const name of ["MADOS-20GE", "MADOS-20FT", "MADOS-20FA"]) {
+    const ctx = scene.context();
+    assert.equal(scene.choosePlacement(one(name), ctx, { hit: side, normal: [1, 0, 0], viewDir: VIEW, prefR: R0 }), null, `${name} cannot cross the grub`);
+    assert.match(scene.whyNot(one(name), ctx, side), /Another joiner is already in the way/);
+  }
+  // a second block still screws onto the half of the grub that sticks out
+  assert.ok(dropOn("MADOS-20BA", base, [0, 0, 1]), "the grub still takes a second block");
+});
+
+test("the block to plate joiner holds a plate level with the block's face", () => {
+  const { scene, one, onFloor, dropOn, boxOf } = fresh();
+  const base = onFloor("MADOS-20BA");
+  const joiner = dropOn("MADOS-20FB", base, [1, 0, 0]);
+  assert.ok(joiner, "its bar goes into the side of the block");
+  const boss = scene.itemPorts(scene.get(joiner.ids[0])).find((p) => p.system === "seat");
+  assert.ok(boss.pos[0] > 10 + 9, "the boss is left outside the block");
+  const plate = scene.placementsOn(one("MADOS-20EA"), scene.context(), joiner.ids[0])[0];
+  assert.ok(plate, "a plate goes onto the boss");
+  assert.equal(plate.engaged, 2, "at its best turn the plate's hook also plugs into the block");
+  const id = scene.place(plate.payload, plate.pose)[0];
+  const g = boxOf(id), b = boxOf(base);
+  const k = [0, 1, 2].find((i) => Math.abs(boss.normal[i]) > 0.9);
+  assert.ok(Math.abs(g.max[k] - g.min[k] - 10) < 1e-6, "the plate lies flat against that side");
+  assert.ok(Math.abs((boss.normal[k] < 0 ? g.min[k] - b.min[k] : g.max[k] - b.max[k])) < 1e-6, "level with the block's face");
+  assert.ok(g.min[2] >= -1e-6, "and stays above the floor");
+  assert.equal(scene.pieces().length, 1, "block, joiner and plate are one piece");
 });
 
 test("every part of the author's is in the list", () => {
@@ -192,7 +248,7 @@ test("every part of the author's is in the list", () => {
 });
 
 test("an inner square joiner slides into a block's channel and holds a second block", () => {
-  for (const name of ["MADOS-20FT", "MADOS-20FM", "MADOS-20FK"]) {
+  for (const name of ["MADOS-20FT", "MADOS-20FM"]) {
     const { scene, one, onFloor, dropOn, boxOf } = fresh();
     const base = onFloor("MADOS-20BA");
     const joiner = dropOn(name, base, [0, 0, 1]);
@@ -213,7 +269,7 @@ test("an inner square joiner slides into a block's channel and holds a second bl
 test("every joiner of the author's has joints", () => {
   const joiners = catalog.parts.filter((p) => p.category === "Joiners");
   assert.equal(joiners.length, 10);
-  for (const p of joiners) assert.ok(p.bodies[0].ports.length >= 2, `${p.name} has ${p.bodies[0].ports.length} joints`);
+  for (const p of joiners) assert.ok(p.bodies[0].ports.length >= 1, `${p.name} has ${p.bodies[0].ports.length} joints`);
 });
 
 // ---------------------------------------------------------------- what the interface relies on

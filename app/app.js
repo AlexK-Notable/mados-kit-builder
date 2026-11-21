@@ -1693,8 +1693,11 @@ async function printFiles({ preview = true } = {}) {
   const kindOf = (part) => part.name.match(/^MADOS-20([A-Z])/)?.[1] ?? { twist_block: "A", hinge: "H", wrap_cover: "W", cover: "C" }[part.kind] ?? "";
   const together = [
     used((p) => kindOf(p) === "A") && "  - Twist blocks: push the four plugs on the end into four sockets, then turn the block until it locks.\n    A block with plugs on both ends locks its second end by turning the other way.",
-    used((p) => p.name === "MADOS-20GE") && "  - Grub joiners: screw one half way into the opening in the middle of a block's face with a 5 mm\n    Allen key, then screw the second block onto the half that sticks out.",
-    used((p) => p.kind === "joiner" && /^MADOS-20F[ABKLMTU]/.test(p.name)) && "  - Bar joiners: push the bar into the diamond-shaped opening in the middle of a block's face, corner up,\n    until it clicks; the next block pushes on over the half that sticks out.",
+    used((p) => p.name === "MADOS-20GE") && "  - Grub joiners: hold the two blocks face to face and screw the grub in through one of them with a\n    5 mm Allen key, until half of it is in each block. Only one joiner can pass through the middle of a block.",
+    used((p) => /^MADOS-20F[MTU]/.test(p.name)) && "  - Bar joiners: push the bar into the diamond-shaped opening in the middle of a block's face, corner up,\n    until it stops; the next block pushes on over the half that sticks out.",
+    used((p) => /^MADOS-20F[AKL]/.test(p.name)) && "  - Nuts (20FA, 20FK, 20FL): push the nut into the opening in the middle of a block's face until it is flush.\n    It stays inside that block and takes an M8 bolt.",
+    used((p) => p.name === "MADOS-20FB") && "  - Block to plate joiner: push its bar into the opening in the middle of a block's face, then set the plate,\n    pointed side down, onto the boss left outside. The plate ends up level with the block's face.",
+    used((p) => /^MADOS-20F[CD]/.test(p.name)) && "  - Plate joiners (20FC, 20FD): lay the plates edge to edge, pointed side up, and drop the nuts into the\n    hollows; M8 bolts through the plates hold them.",
     used((p) => ["C", "W", "I", "J", "K", "E", "D"].includes(kindOf(p))) && "  - Covers, braces, plates and mini blocks: line the plugs up with the sockets and press until they click.",
     used((p) => p.joints.length && p.kind !== "hinge") && "  - Wrap covers print flat: fold them along their creases round the block and press each side on.",
     used((p) => p.kind === "hinge") && "  - Hinges print in place as one piece. Work the joint loose gently before fitting it.",

@@ -184,9 +184,9 @@ def in_words(entry):
             if port["kind"] == K.SOCKET:
                 if port.get("system") == K.HOLE:
                     openings += 1
-                else:
+                elif not port.get("system"):
                     sockets += 1
-            elif port.get("system") != K.HOLE:
+            elif not port.get("system"):
                 sides[(index, tuple(round(v) for v in port["normal"]))] += 1
     faces = [face for (_, face) in sides]
     opposite = len(faces) == 2 and all(a == -b for a, b in zip(*faces))
@@ -241,7 +241,8 @@ def in_words(entry):
         if b[5] - b[2] < 15:
             what += " Half thickness (10 mm)."
     elif family == "E":
-        what = f"A flat open frame 10 mm thick, with snap plugs along {'two neighbouring edges' if len(faces) == 2 else 'one edge'}."
+        what = (f"A flat open frame 10 mm thick, flat on one side and pointed on the other, with snap plugs along "
+                f"{'two neighbouring edges' if len(faces) == 2 else 'one edge'}. The plate joiners sit in the hollows on its pointed side.")
     else:
         what = OFFICIAL_USE.get(name, "A joiner that goes into the opening in the middle of a block's face.")
 
@@ -320,12 +321,14 @@ OFFICIAL_USE = {
     "MADOS-20AU": "Twist plugs on both ends.",
     "MADOS-20AV": "Twist plugs on both ends.",
     "MADOS-20HA": "Print-in-place hinge with a socket on one leaf and a plug on the other.",
-    "MADOS-20GE": "A threaded pin that screws into the opening in the middle of a block's face, half into each of two "
-                  "blocks, with a 5 mm Allen key. This is what joins two plain blocks face to face.",
-    "MADOS-20FC": "A flat bar with two stubs 20 mm apart. Each stub goes into the middle opening of a face, tying two "
-                  "blocks that stand side by side together.",
-    "MADOS-20FD": "A flat square with four stubs 20 mm apart. Each goes into the middle opening of a face, tying four "
-                  "neighbouring blocks together.",
+    "MADOS-20GE": "A threaded pin that joins two plain blocks face to face. Hold the blocks together and screw it in "
+                  "through one of them with a 5 mm Allen key until half is in each; it can travel right through a block. "
+                  "Only one joiner can pass through the middle of a block.",
+    "MADOS-20FC": "A strip with two M8 nuts 20 mm apart, for plates only. Each nut sits in the hollow on the pointed side "
+                  "of a plate, flush, so the strip ties two plates lying edge to edge together; M8 bolts through the plates "
+                  "hold it. It does not fit a block.",
+    "MADOS-20FD": "A square with four M8 nuts 20 mm apart, for plates only. Each nut sits in the hollow on the pointed side "
+                  "of a plate, flush, tying up to four plates together; M8 bolts through the plates hold it. It does not fit a block.",
 }
 # How the inner square joiners are used [the author's About page and kitparts.CHANNEL_JOINERS].
 IN_CHANNEL = "A bar that slides into the diamond-shaped opening in the middle of a block's face, corner up, and clicks in."
@@ -333,11 +336,15 @@ OFFICIAL_USE.update({
     "MADOS-20FT": f"{IN_CHANNEL} Half goes into each of two blocks to join them; its cross holes take an M8 rod.",
     "MADOS-20FU": f"{IN_CHANNEL} Half goes into each of two blocks to join them; its cross holes take an M8 rod.",
     "MADOS-20FM": f"{IN_CHANNEL} Half goes into each of two blocks and pulls them tight together.",
-    "MADOS-20FK": f"{IN_CHANNEL} Half goes into each of two blocks; its side thread takes an M8 bolt.",
-    "MADOS-20FL": f"{IN_CHANNEL} Half goes into each of two blocks; its side thread takes an M8 bolt.",
-    "MADOS-20FA": f"{IN_CHANNEL} It rests in the middle of a block and takes an M8 bolt from the side.",
-    "MADOS-20FB": f"{IN_CHANNEL} It is meant to hold a plate against a block. This builder only knows how the bar goes "
-                  "into the block, not yet how the plate goes on.",
+    "MADOS-20FK": "A nut that lives inside a block. Push it into the opening in the middle of a face until it is flush; "
+                  "its side thread then takes an M8 bolt. It does not join two blocks.",
+    "MADOS-20FL": "A nut that lives inside a block. Push it into the opening in the middle of a face until it is flush; "
+                  "its side thread then takes an M8 bolt. It does not join two blocks.",
+    "MADOS-20FA": "A short M8 nut for a block's face. Push it into the opening in the middle of the face you want a thread "
+                  "in, until it is flush.",
+    "MADOS-20FB": "Holds a plate flat against the side of a block. Its bar goes into the opening in the middle of a "
+                  "block's face; the boss left outside sits in the hollow on the pointed side of a plate, which ends up "
+                  "level with the block's face.",
 })
 
 
@@ -373,6 +380,8 @@ def joints_in_words(part):
     def name(p):
         if p.get("system") == K.HOLE:
             return "threaded hole" if p["kind"] == K.SOCKET else "threaded stud"
+        if p.get("system") == K.SEAT:
+            return "hollow for a plate joiner" if p["kind"] == K.SOCKET else "boss"
         return names[p["kind"]]
     count = collections.Counter(name(p) for b in part["bodies"] for p in b["ports"] if not p.get("passive"))
     words = [f"{n} {name}{'s' if n != 1 else ''}" for name, n in sorted(count.items(), key=lambda kv: kv[0] in ("socket", "threaded hole"))]

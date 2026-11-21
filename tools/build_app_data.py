@@ -8,6 +8,7 @@ JavaScript tests are checked against.
 """
 import json
 import os
+import re
 import sys
 import time
 
@@ -35,7 +36,9 @@ previous = json.load(open(os.path.join(OUT, "catalog.json"))) if only else None
 built = {}
 for label, category, note, make, print_mesh in A.catalogue():
     if only:
-        was = next(p for p in previous["parts"] if p["label"] == label)
+        # labels are reworded when a part is described, so an official part is found by its number
+        code = re.search(r"\((20[A-Z]{2})\)$", label)
+        was = next(p for p in previous["parts"] if (p["name"] == f"MADOS-{code.group(1)}" if code else p["label"] == label))
         if was["name"] not in only:
             catalog["parts"].append(was)
             continue
@@ -68,12 +71,16 @@ if only:
     vectors = json.load(open(os.path.join(OUT, "vectors.json")))
 pairs = [("cover_20x20_s4", "channel_40"), ("twist_40_s3", "channel_40"), ("MADOS-20DH", "channel_40"),
          ("hinge_40_s3", "channel_60"), ("MADOS-20AA", "MADOS-20BA"), ("channel_40", "twist_40_s3"),
-         # the threaded-hole joint: the grub and the plate joiners in blocks, and a block onto a grub
-         ("MADOS-20GE", "channel_40"), ("MADOS-20FC", "channel_60"), ("MADOS-20FD", "channel_40_2x2"),
+         # the threaded-hole joint: the grub in a block; the plate joiners in the hollows of plates, and kept out of blocks
+         ("MADOS-20GE", "channel_40"), ("MADOS-20FC", "MADOS-20EA"), ("MADOS-20FD", "MADOS-20EE"), ("MADOS-20FC", "MADOS-20BA"),
+         ("MADOS-20FB", "MADOS-20EA"),
          ("MADOS-20HK", "MADOS-20BB"), ("MADOS-20KG", "MADOS-20BA"),
          # the inner square joiners in a block's channel
          ("MADOS-20FT", "MADOS-20BA"), ("MADOS-20FM", "MADOS-20BB"), ("MADOS-20FK", "channel_40"),
          ("MADOS-20FA", "MADOS-20BA"), ("MADOS-20FB", "MADOS-20BA")]
+if only:                                                 # answers for pairs that are no longer asked about
+    for key in ("candidates", "collisions"):
+        vectors[key] = [row for row in vectors[key] if (row["mover"], row["fixed"]) in pairs]
 for mover, fixed in pairs:
     if only:
         if mover not in built or fixed not in built:
@@ -92,7 +99,10 @@ for mover, fixed in pairs:
         real = K.mesh_interference(mesh_mover, mesh_fixed, pose)
         # a joiner sits inside its host: it must not cut into it by more than its studs' threads do
         # [measured: at most 2.7 mm3 a stud; the grub is checked at one turn only, where it reads up to 6.3]
-        allowed = 7.0 * n if built[mover][0]["kind"] == "joiner" else 5.0
+        # [measured: MADOS-20FK flush in the end of a 40 mm block reads 8.2 - 9.9]
+        # a nut that lies wholly inside one block passes two faces with one joint: its far end counts too
+        passed = n + sum(bool(p.get("passive")) for p in mp)
+        allowed = 7.0 * passed if built[mover][0]["kind"] == "joiner" else 5.0
         if hit != (real > allowed):
             disagree += 1
         rows.append({"pose": pose_json(pose), "engaged": n, "collides": hit, "mesh_overlap": round(real, 3)})

@@ -68,10 +68,17 @@ a finger on it, to pick it up.
 | ![The builder in dark colours with a hinge selected](docs/dark.png) | ![The builder on a phone-sized screen](docs/phone.png) |
 
 The list holds all 63 of the author's parts under his own names and numbers, and 20
-generated sizes he does not publish. Three kinds of joint are modelled: the plugs and
-sockets on faces, the threaded hole in the middle of each face tile (the grub joiner and
-the plate joiners), and the moving joints of hinges and wrap covers. The seven press-in
-"inner square" joiners slide into the same channel as the grub, turned corner up.
+generated sizes he does not publish. Four kinds of joint are modelled:
+
+- the plugs and sockets on faces;
+- the threaded opening in the middle of each face tile. The grub joiner screws through
+  it, half into each of two blocks. The bar joiners slide into the same channel, turned
+  corner up: the 40 mm ones join two blocks, and the nuts (20FA, 20FK, 20FL) sit flush
+  inside one block to take an M8 bolt. Only one joiner can pass through the middle of a
+  block;
+- the hollow on the pointed side of each plate tile, where the nuts of the plate joiners
+  (20FC, 20FD) and the boss of the block to plate joiner (20FB) sit flush;
+- the moving joints of hinges and wrap covers.
 
 ## Parts made to order
 
@@ -91,13 +98,17 @@ and socket shapes as his parts.
 
 ## What is not right yet
 
-- Only part of this has been test-printed. A first print (PLA, 0.2 mm layers) confirmed
-  the twist joint, a generated block and a generated twist block against official parts,
-  a block and cover at 1.5 times scale (slightly looser than at normal size), the pull
-  joiner between two blocks, and the corner brace and open plate in an inside corner.
-  The grub joiner and the other small joiners have not been printed yet.
-- Joiners take up no space in the builder: two joiners can cross inside a block, and a
-  cover can go on over a joiner that sticks out.
+- Two test prints (PLA, 0.2 mm and 0.12 mm layers) are behind the joint rules: the twist
+  joint, a generated block and twist block against official parts, a block and cover at
+  1.5 times scale (slightly looser than at normal size), the pull joiner, the corner brace
+  and open plate in an inside corner, and how the grub, the nuts and the plate joiners
+  really go together. Parts that were not in those prints, the hinges among them, follow
+  the rules of the printed parts of the same kind.
+- Joiners take up room only against each other. Two joiners cannot cross inside a block,
+  but a cover can still go on over a joiner that sticks out, and the M8 bolts the nuts
+  are for are not part of the builder.
+- On a large plate a joiner's boss also fits where four tiles meet. The builder only
+  offers the middles of tiles.
 - The builder does not check that a part can physically be pushed into place, only that
   it fits once there.
 - A part is accepted with only some of its plugs in a socket. In the test print a twist
@@ -105,7 +116,6 @@ and socket shapes as his parts.
   partly joined.
 - Sockets on stepped or inset faces of nine official parts are not found, so those faces
   refuse parts they would really take.
-- The sideways boss of the block-to-plate joiner (MADOS-20FB) is not modelled.
 
 ## What is in here
 

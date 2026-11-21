@@ -142,15 +142,23 @@ def stock_wrap(part_number, panels, panel_width=M.TILE):
 
 
 # Where the author's threaded joiners put their studs, in each file's own coordinates:
-# (position on the host's face, direction the stud points into the host, directions in
-# which the joiner's flat web leaves that stud).
-# [measured 2026-11-18: as drawn, MADOS-20FC and 20FD sit in MADOS-20BA's top face (z = 10)
-#  with 1.2 and 2.7 mm3 of interference; the grub seats centred on a face with 1.1 mm3]
+# (position on the host's face, direction the stud points into the host, joint system,
+# directions in which the joiner's flat web leaves that stud).
+# The grub screws into the threaded hole in the middle of a face tile, half into each of
+# two parts [measured 2026-11-18: it seats centred on a face with 1.1 mm3 of interference].
+# The plate joiners are strips of M8 nuts: each boss sits in the hollow on the pointed side
+# of a plate tile, right through to its flat side, and does not go into a block
+# [test print 2026-11-20: "they physically do not fit into blocks ... they're purely for plates";
+#  measured: the boss is 11.6 mm across against a 9.6 mm threaded hole, and its own thread is 6.8 mm, M8].
+_BOSS = 10.0 - K.SEAT_DEPTH                # file z of the plane of the plate's points when a boss (z 0..10, end at z = 10) is seated
 JOINER_STUDS = {
-    "MADOS-20GE": [((0, 0, 0), (0, 0, 1), []), ((0, 0, 0), (0, 0, -1), [])],
-    "MADOS-20FC": [((0, 0, 10), (0, 0, -1), [(1, 0, 0)]), ((20, 0, 10), (0, 0, -1), [(-1, 0, 0)])],
-    "MADOS-20FD": [((0, 0, 10), (0, 0, -1), [(1, 0, 0), (0, 1, 0)]), ((20, 0, 10), (0, 0, -1), [(-1, 0, 0), (0, 1, 0)]),
-                   ((0, 20, 10), (0, 0, -1), [(1, 0, 0), (0, -1, 0)]), ((20, 20, 10), (0, 0, -1), [(-1, 0, 0), (0, -1, 0)])],
+    "MADOS-20GE": [((0, 0, 0), (0, 0, 1), K.HOLE, []), ((0, 0, 0), (0, 0, -1), K.HOLE, [])],
+    # the strip's web lies in the notch at a plate's edge, so it bridges two plates, not two tiles of one
+    "MADOS-20FC": [((0, 0, _BOSS), (0, 0, 1), K.SEAT, [(1, 0, 0)]), ((20, 0, _BOSS), (0, 0, 1), K.SEAT, [(-1, 0, 0)])],
+    # the square has the same tall web along X (6 mm) and a lower one along Y (4 mm) that clears the ridges
+    # between tiles [measured: 6.0 mm3 with the low webs over two tiles of MADOS-20EE, 115 with the tall ones]
+    "MADOS-20FD": [((0, 0, _BOSS), (0, 0, 1), K.SEAT, [(1, 0, 0)]), ((20, 0, _BOSS), (0, 0, 1), K.SEAT, [(-1, 0, 0)]),
+                   ((0, 20, _BOSS), (0, 0, 1), K.SEAT, [(1, 0, 0)]), ((20, 20, _BOSS), (0, 0, 1), K.SEAT, [(-1, 0, 0)])],
 }
 
 
@@ -176,14 +184,27 @@ CHANNEL_JOINERS = {
     "MADOS-20FT": (15.0, [(0, 1), (0, -1), (20, -1, True), (-20, 1, True)]),
     "MADOS-20FU": (15.0, [(0, 1), (0, -1), (20, -1, True), (-20, 1, True)]),
     "MADOS-20FM": (-10.0, [(0, 1), (0, -1), (20, -1, True), (-20, 1, True)]),     # 4 mm3 a block: a tight fit that pulls them together
-    # 20 mm: centred on the face between two blocks, 10 mm into each [0.4 mm3 there, 7 or more 5 mm either way]
-    "MADOS-20FK": (0.0, [(0, 1), (0, -1)]),
-    "MADOS-20FL": (0.0, [(0, 1), (0, -1)]),
-    # the nut rests in the middle of a block, between two ridges [0.0 mm3]: 10 mm from each face
-    "MADOS-20FA": (6.5, [(10, -1), (-10, 1)]),
+    # 20 mm, a nut inside one block: pushed in until it is flush with the face it went in by
+    # [test print 2026-11-20: "it sits flush. the intention is pretty clearly for these to function as a nut inside the block"]
+    "MADOS-20FK": (10.0, [(0, -1), (-20, 1, True)]),
+    "MADOS-20FL": (10.0, [(0, -1), (-20, 1, True)]),
+    # the 7 mm nut likewise [test print 2026-11-20: "it sits flush with the face it was inserted into"]
+    "MADOS-20FA": (10.0, [(0, -1)]),
     # block to plate: the bar is drawn inside a block (file y -10..10) with the boss 10 mm outside.
-    # Only the bar is given joints; where the boss meets a plate is not known.
     "MADOS-20FB": (-10.0, [(0, 1), (20, -1, True)]),
+}
+
+# Bosses of channel joiners that a plate sits on, in the frame the joiner stands in (see
+# stock_joiner): (where the plane of the plate's points ends up on the boss's axis, the
+# direction the boss points, the direction from the boss to the bar: the bar has to leave
+# the plate over its edge, like a web [measured: 3.2 - 3.9 mm3 there, 170 with the bar over the plate]).
+# [test print 2026-11-20: with the bar in a block and the boss facing up, "you would then be able to place a
+#  plate square on top of that protrusion ... the valley between those tips nestles onto the triangular section";
+#  measured: MADOS-20EA, points towards the bar, slides on with 3.2 mm3 of interference until its flat side is
+#  level with the boss's end, which is level with the block's face; 1 mm further it is 52 mm3.  Turned so that
+#  its hooks face the block, they go into the block's sockets there (0.2 mm3).]
+BOSS_SEATS = {
+    "MADOS-20FB": [((0.0, 0.0, -10.0), (0, -1, 0), (0, 0, 1))],
 }
 
 
@@ -212,12 +233,33 @@ def stock_joiner(part_number):
             if passive:
                 stud["passive"] = True
             ports.append(stud)
-    for pos, normal, webs in JOINER_STUDS.get(part_number, []):
-        stud = K.port(K.STUD, pos, normal, (1, 0, 0), system=K.HOLE)
+    for pos, normal, system, webs in JOINER_STUDS.get(part_number, []):
+        stud = K.port(K.STUD, pos, normal, (1, 0, 0), system=system)
         if webs:
             stud["webs"] = [list(w) for w in webs]
         ports.append(stud)
+    for pos, normal, to_bar in BOSS_SEATS.get(part_number, []):
+        stud = K.port(K.STUD, pos, normal, (1, 0, 0), system=K.SEAT)
+        stud["webs"] = [list(to_bar)]
+        ports.append(stud)
+    meta["cores"] = joiner_cores(part_number, mesh)
     return rigid(part_number, "joiner", mesh, ports, **meta)
+
+
+CORE_HALF = 4.0     # mm, half the side of the square a joiner in a channel is taken to fill [the bars are 7.9 mm square, the grub 10.5 mm across]
+
+
+def joiner_cores(part_number, mesh):
+    """The room a joiner takes up inside the channel it sits in, as boxes [lo, hi] in its
+    own frame, so that two joiners cannot be put through each other
+    [test print 2026-11-20: "you can only have one grub inhabit the center of the block at a time"]."""
+    if part_number not in CHANNEL_JOINERS and part_number != "MADOS-20GE":
+        return []
+    b = mesh.bounding_box()
+    lo, hi = float(b[2]), float(b[5])
+    if part_number in BOSS_SEATS:                         # the bar only: the boss is outside the block
+        hi, lo = 20.0, 0.0
+    return [[[-CORE_HALF, -CORE_HALF, round(lo, 3)], [CORE_HALF, CORE_HALF, round(hi, 3)]]]
 
 
 def stock(part_number, grid_origin=(0.0, 0.0, 0.0)):
@@ -235,7 +277,12 @@ def stock(part_number, grid_origin=(0.0, 0.0, 0.0)):
         bodies, _ = M.recommended_stl(part_number)
         assert len(bodies) == 1, f"{part_number}: the recommended STL has {len(bodies)} bodies"
         mesh = bodies[0]
-    return rigid(part_number, "stock", mesh, K.detect_ports(mesh, grid_origin=grid_origin))
+    ports = K.detect_ports(mesh, grid_origin=grid_origin)
+    if part_number.startswith("MADOS-20E"):               # the plates: a hollow for a joiner's boss on the pointed side of each tile
+        seats = K.detect_seats(mesh)
+        assert seats, f"{part_number}: no hollow for a plate joiner was found"
+        ports = ports + seats
+    return rigid(part_number, "stock", mesh, ports)
 
 
 # ------------------------------------------------------------------ articulation
