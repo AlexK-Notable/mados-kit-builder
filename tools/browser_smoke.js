@@ -208,6 +208,21 @@ async page => {
   const told = await app(() => document.getElementById("summary").textContent);
   check("a twist block on one plug of four is reported as only partly joined", weak.length === 1 && weak[0].engaged === 1 && weak[0].of === 4 && /partly joined/.test(told), JSON.stringify(weak));
 
+  // rings mark the free plugs a part with only sockets could go on
+  await reset([{ name: "MADOS-20BA", pose: { r: I, t: [0, 0, 10] }, angles: [] }, { name: "MADOS-20GE", pose: { r: I, t: [0, 0, 20] }, angles: [] }, { name: "MADOS-20AA", pose: { r: I, t: [60, 0, 10] }, angles: [] }]);
+  d = await drag(await card("channel_40"), await at([30, -35, 0]));
+  check("a held block is told which free plugs it can join", /green rings/.test(d.hint), d.hint);
+  await reset([{ name: "MADOS-20BA", pose: { r: I, t: [0, 0, 10] }, angles: [] }, { name: "MADOS-20BA", pose: { r: I, t: [60, 0, 10] }, angles: [] }]);
+  check("two plain blocks are told why they cannot join", /cannot join each other yet/.test(await app(() => document.getElementById("summary").textContent)));
+
+  // Alt-drag carries off a copy and leaves the original
+  await reset([{ name: "MADOS-20BA", pose: { r: I, t: [0, 0, 10] }, angles: [] }]);
+  await page.keyboard.down("Alt");
+  await drag(await at([0, -10, 10]), await at([40, 0, 0]));
+  await page.keyboard.up("Alt");
+  s = await state();
+  check("Alt-drag carries off a copy", s.items.length === 2 && s.items[0] === "MADOS-20BA@0,0,10", s.items.join(" "));
+
   await reset([{ name: "channel_40", pose: { r: I, t: [0, 0, 10] }, angles: [] }]);
   await drag(await card("twist_40_s3"), await at([0, -10, 20]));
   await app(() => window.madosApp.select(1));
@@ -258,6 +273,36 @@ async page => {
   await page.waitForTimeout(300);
   const sideOn = await app(() => document.getElementById("side").getBoundingClientRect().left < window.innerWidth - 100);
   await page.click("#side-close");
+
+  // fingers: a tap adds, a pull up out of the list carries, a rest on a part picks it up, a swipe scrolls
+  const cdp = await page.context().newCDPSession(page);
+  const finger = (type, points) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points.map(([x, y]) => ({ x, y, id: 1 })) });
+  const visibleCard = () => app(() => {
+    const el = [...document.querySelectorAll(".card")].find((c) => { const b = c.getBoundingClientRect(); return b.left > 30 && b.right < window.innerWidth - 30; });
+    const b = el.getBoundingClientRect();
+    return [b.left + b.width / 2, b.top + b.height / 2];
+  });
+  let c = await visibleCard();
+  await finger("touchStart", [c]); await page.waitForTimeout(60); await finger("touchEnd", []);
+  await page.waitForTimeout(400);
+  const tapped = (await state()).items.length;
+  c = await visibleCard();
+  await finger("touchStart", [c]);
+  for (let i = 1; i <= 8; i++) { await finger("touchMove", [[c[0] + 5 * i, c[1] - 40 * i]]); await page.waitForTimeout(25); }
+  const pulled = await app(() => Boolean(window.madosApp.dragging));
+  await page.keyboard.press("Escape"); await finger("touchEnd", []);
+  c = await visibleCard();
+  await finger("touchStart", [c]); await page.waitForTimeout(600);
+  const held = await app(() => Boolean(window.madosApp.dragging));
+  await page.keyboard.press("Escape"); await finger("touchEnd", []);
+  const scrollBefore = await app(() => document.getElementById("cards").scrollLeft);
+  await finger("touchStart", [[330, c[1]]]);
+  for (let i = 1; i <= 8; i++) { await finger("touchMove", [[330 - 30 * i, c[1]]]); await page.waitForTimeout(20); }
+  await finger("touchEnd", []);
+  await page.waitForTimeout(400);
+  const scrolled = (await app(() => document.getElementById("cards").scrollLeft)) - scrollBefore;
+  check("with a finger: a tap adds a part, a pull or a rest picks one up, and a swipe scrolls the list",
+    tapped === 2 && pulled && held && scrolled > 50 && (await state()).items.length === 2, JSON.stringify({ tapped, pulled, held, scrolled }));
   await page.setViewportSize({ width: 1400, height: 860 });
   check("on a phone-sized screen the list sits under the view and the parts list opens from a button", phone.strip && phone.stage && phone.sideOff && phone.toggle && sideOn, JSON.stringify(phone));
 

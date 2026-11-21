@@ -29,7 +29,7 @@
     <button id="undo" class="icon" title="Undo (Ctrl+Z)" aria-label="Undo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7 4 12l5 5M4 12h10a6 6 0 0 1 0 12h-2" transform="translate(0 -3)"/></svg></button>
     <button id="redo" class="icon" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 7 5 5-5 5m5-5H10a6 6 0 0 0 0 12h2" transform="translate(0 -3)"/></svg></button>
     <div class="menu">
-      <button id="menu-button" aria-haspopup="true" aria-expanded="false" title="Save, open, share and settings">Build <svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="m2.5 4.5 3.5 3.5 3.5-3.5"/></svg></button>
+      <button id="menu-button" aria-haspopup="true" aria-expanded="false" title="Save, open, share and settings"><span>Build</span><svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="m2.5 4.5 3.5 3.5 3.5-3.5"/></svg></button>
       <div id="menu" class="menu-list" role="menu" hidden>
         <button role="menuitem" id="new"><span>New build</span><kbd>empties the scene</kbd></button>
         <button role="menuitem" id="load"><span>Open a saved build&hellip;</span><kbd>Ctrl+O</kbd></button>
@@ -44,7 +44,7 @@
       </div>
     </div>
     <button id="custom" hidden title="Make a block, cover or hinge at a size the list does not have">Custom part&hellip;</button>
-    <button id="export" class="primary" title="See what to print, and download the files with a parts list">Download for printing</button>
+    <button id="export" class="primary" title="See what to print, and download the files with a parts list"><span class="long">Download for printing</span><span class="short">Print list</span></button>
     <button id="help" class="icon round" title="How to use this (?)" aria-label="Help">?</button>
   </div>
 </header>
@@ -110,7 +110,7 @@
     <tr><td>Drag it back onto the list</td><td>remove it from the build</td></tr>
     <tr><th colspan="2">Parts in the build</th></tr>
     <tr><td>Click</td><td>select a part; its details and buttons appear on the right</td></tr>
-    <tr><td>Drag</td><td>move a part. Hold <kbd>Shift</kbd> to move everything joined to it</td></tr>
+    <tr><td>Drag</td><td>move a part. Hold <kbd>Shift</kbd> to move everything joined to it, <kbd>Alt</kbd> to carry off a copy</td></tr>
     <tr><td><kbd>Delete</kbd></td><td>remove the selected part</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>D</kbd></td><td>make a copy of it</td></tr>
     <tr><td><kbd>R</kbd> <kbd>F</kbd> and the arrow keys</td><td>turn, tip and slide the selected piece</td></tr>

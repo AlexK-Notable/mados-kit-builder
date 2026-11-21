@@ -48,6 +48,9 @@ h1 { font-size: 16px; margin: 0; font-weight: 650; white-space: nowrap; }
 #title::placeholder { color: var(--soft); font-weight: 400; }
 .tools { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .menu { position: relative; }
+#menu-button { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+#export { white-space: nowrap; }
+#export .short { display: none; }
 .chev { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; margin-left: 2px; }
 .menu-list { position: absolute; right: 0; top: calc(100% + 6px); min-width: 270px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 6px; display: flex; flex-direction: column; }
 .menu-list button { border: 0; background: none; text-align: left; padding: 7px 10px; border-radius: 6px; display: flex; justify-content: space-between; gap: 18px; align-items: baseline; }
@@ -71,6 +74,7 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 #cards h2 small { text-transform: none; letter-spacing: 0; font-weight: 400; }
 .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .card { border: 1px solid var(--line); border-radius: 8px; padding: 4px 4px 6px; text-align: center; cursor: grab; background: var(--raised); touch-action: pan-y; position: relative; }
+.card { -webkit-touch-callout: none; -webkit-user-select: none; }
 .card:hover { border-color: var(--accent); background: var(--accent-soft); }
 .card img { width: 100%; height: auto; aspect-ratio: 4 / 3; display: block; pointer-events: none; }
 .card span { display: block; font-size: 12px; line-height: 1.25; }
@@ -164,7 +168,11 @@ dialog p { line-height: 1.45; }
 }
 @media (max-width: 860px) {
   header { gap: 6px; padding: 6px 8px; }
-  #export { padding: 5px 8px; }
+  #export { padding: 5px 9px; }
+  #export .long { display: none; }
+  #export .short { display: inline; }
+  .brand svg { width: 22px; height: 22px; }
+  #title { padding: 5px 6px; }
   #custom { display: none; }
   main { flex-direction: column; }
   #stage { order: 1; }

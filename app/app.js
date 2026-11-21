@@ -399,6 +399,47 @@ function visualFor(payload, material) {
   };
 }
 
+// A soft ring, drawn once, for marking places on the build.
+const ringTexture = (() => {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d");
+  g.strokeStyle = "#fff"; g.lineWidth = 7;
+  g.beginPath(); g.arc(32, 32, 22, 0, Math.PI * 2); g.stroke();
+  g.fillStyle = "#fff";
+  g.beginPath(); g.arc(32, 32, 8, 0, Math.PI * 2); g.fill();
+  return new THREE.CanvasTexture(c);
+})();
+
+// Rings on the free plugs of the build that the held part's sockets could take.  Sockets
+// are everywhere and need no pointing out; plugs are the scarce half of a joint, and a
+// part with only sockets (a plain block) can go nowhere else.  -> {group, count}
+function plugMarkers(payload, ctx) {
+  const mine = scene.payloadPorts(payload);
+  const takesPlugs = mine.some((p) => !kit.isPlug(p) && !p.system && !p.passive);
+  const takesStuds = mine.some((p) => !kit.isPlug(p) && p.system && !p.passive);
+  const group = new THREE.Group();
+  const spots = new Map();
+  const at = (pos) => `${Math.round(pos[0] * 100)},${Math.round(pos[1] * 100)},${Math.round(pos[2] * 100)}`;
+  for (const p of ctx.fixed) {
+    if (!kit.isPlug(p) || p.passive || !(p.system ? takesStuds : takesPlugs)) continue;
+    if (ctx.index.get(at(p.pos)).some((q) => q !== p && kit.mates(p, q))) continue;   // already in a socket
+    const key = `${p.item}:${p.body}:${p.normal.map((v) => Math.round(v * 10)).join(",")}`;
+    if (!spots.has(key)) spots.set(key, { sum: [0, 0, 0], n: 0, normal: p.normal });
+    const spot = spots.get(key);
+    spot.sum = kit.add(spot.sum, p.pos); spot.n += 1;
+  }
+  for (const spot of spots.values()) {
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTexture, color: 0x25c487, transparent: true, opacity: 0.95, depthTest: false }));
+    sprite.position.set(...kit.add(kit.scale(spot.sum, 1 / spot.n), kit.scale(spot.normal, 2)));
+    sprite.scale.set(9, 9, 1);
+    sprite.renderOrder = 10;
+    group.add(sprite);
+  }
+  world.add(group);
+  return { group, count: spots.size, onlySockets: !mine.some((p) => kit.isPlug(p) && !p.passive) };
+}
+
 function makeChip(text) {
   const chip = document.createElement("div");
   chip.className = "dragchip";
@@ -424,6 +465,7 @@ function beginDrag(payload, { moving = [], prefR, event, label }) {
     x: event.clientX, y: event.clientY,
     chip: makeChip(label),
   };
+  drag.markers = plugMarkers(payload, drag.ctx);
   controls.enabled = false;
   document.body.style.cursor = "grabbing";
   $("dragtools").hidden = false;
@@ -480,20 +522,25 @@ function updateDrag() {
     drag.held.place(target.payload, { r: target.pose.r, t: kit.add(target.pose.t, kit.scale(target.normal, HOVER)) });
     drag.held.material.color.setHex(partColor(scene.parts.get(payload[0].name)));
     message = target.engaged ? `Let go to snap it in (${plural(target.engaged, "joint")})` : "Let go to stand it here";
+    if (!target.engaged && drag.markers.onlySockets && ctx.fixed.length) {
+      message = drag.markers.count ? "Let go to stand it here. The green rings mark plugs it can join" : "Let go to stand it here. It has only sockets, and nothing in the build has a free plug for it";
+    }
   } else if (free) {
     drag.held.place(payload, free);
     drag.held.material.color.setHex(0xc4553d);
   }
   if (removing) message = "Let go to remove it from the build";
   drag.reason = bad ? message : null;
-  hint(bad || !ray ? message : `${message}  ·  R spins, F tips over`, bad);
+  hint(message, bad);
   requestRender();
 }
 
 function endDrag(commit) {
   if (!drag) return;
-  const { target, held, ghost, chip, moving, reason, remove, payload } = drag;
+  const { target, held, ghost, chip, moving, reason, remove, payload, markers } = drag;
   held.dispose(); ghost.dispose(); chip.remove();
+  for (const sprite of markers.group.children) sprite.material.dispose();
+  world.remove(markers.group);
   drag = null;
   controls.enabled = true;
   document.body.style.cursor = "";
@@ -510,7 +557,7 @@ function endDrag(commit) {
     const ids = scene.place(target.payload, target.pose);
     selected = ids[0];
     animation = { ids, offset: kit.scale(target.normal, HOVER), start: performance.now() };
-    if (!moving.length) rememberRecent(payload[0].name);
+    if (!moving.length && payload.length === 1) rememberRecent(payload[0].name);
     refresh();
     const loose = scene.partlyJoined().find((g) => ids.includes(g.item));
     if (loose) hint(`Snapped in, but only ${loose.engaged} of its ${loose.of} plugs on that side ${loose.engaged === 1 ? "is" : "are"} in a socket: a weak hold`, false, 4500);
@@ -553,6 +600,10 @@ function screenRightAxis() {
 
 const singlePayload = (part) => [{ name: part.name, angles: part.joints.map(() => 0), rel: kit.IDENTITY }];
 
+// With a finger, the list scrolls one way (down the side, or along the bottom on a narrow
+// screen); a pull the other way takes a part out of it.
+const pullsOut = (dx, dy) => (narrow() ? dy > dx : dx > dy);
+
 // Start carrying a part out of the list, as soon as its shape is here.
 function dragFromList(part, event) {
   const start = (at) => beginDrag(singlePayload(part), { prefR: kit.IDENTITY.r, event: at, label: part.label });
@@ -586,6 +637,7 @@ canvas.addEventListener("pointerdown", (event) => {
 const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, 0, 25);
 controls.maxPolarAngle = Math.PI * 0.62;
+controls.zoomToCursor = true;
 controls.addEventListener("change", requestRender);
 controls.addEventListener("start", () => { fly = null; });
 controls.update();
@@ -615,10 +667,16 @@ window.addEventListener("pointermove", (event) => {
     return;
   }
   if (press && event.pointerId === press.pointerId) {
-    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > (press.touch ? DRAG_START_TOUCH : DRAG_START)) {
+    const dx = Math.abs(event.clientX - press.x), dy = Math.abs(event.clientY - press.y);
+    const pulled = press.touch ? Math.hypot(dx, dy) > DRAG_START_TOUCH && pullsOut(dx, dy) : Math.hypot(dx, dy) > DRAG_START;
+    if (pulled) {
       const { part } = press;
+      clearTimeout(press.hold);
       press = null;
       dragFromList(part, event);
+    } else if (press.touch) {
+      press.moved = Math.max(press.moved, Math.hypot(dx, dy));
+      press.at = [event.clientX, event.clientY];
     }
     return;
   }
@@ -628,7 +686,12 @@ window.addEventListener("pointermove", (event) => {
     pending = null;
     if (!item) return;
     const ids = event.shiftKey ? [item.id, ...scene.pieceOf(item.id).filter((id) => id !== item.id)] : [item.id];
-    beginDrag(scene.payloadOf(ids), { moving: ids, prefR: item.pose.r, event, label: ids.length > 1 ? plural(ids.length, "part") : scene.partOf(item).label });
+    const label = ids.length > 1 ? plural(ids.length, "part") : scene.partOf(item).label;
+    if (event.altKey || event.ctrlKey || event.metaKey) {   // carry off a copy, and leave the original where it is
+      beginDrag(scene.payloadOf(ids).map(({ id, ...member }) => member), { prefR: item.pose.r, event, label: `Copy of ${label}` });
+    } else {
+      beginDrag(scene.payloadOf(ids), { moving: ids, prefR: item.pose.r, event, label });
+    }
     return;
   }
   if (!pending && event.pointerType === "mouse" && event.buttons === 0 && event.target === canvas) {
@@ -654,9 +717,10 @@ function releasePointer(event, cancelled) {
   }
   if (waiting && event.pointerId === waiting.pointerId) return cancelWaiting();
   if (press && event.pointerId === press.pointerId) {
-    const { part } = press;
+    const { part, moved, hold } = press;
+    clearTimeout(hold);
     press = null;
-    if (!cancelled) addToFloor(part);
+    if (!cancelled && moved <= DRAG_START_TOUCH) addToFloor(part);
     return;
   }
   if (pending && event.pointerId === pending.pointerId) {
@@ -930,6 +994,20 @@ function totals() {
   };
 }
 
+// Does any part in the build still have a plug or stud that is not in a socket?
+function freePlugs() {
+  const ctx = scene.context();
+  return ctx.fixed.some((p) => kit.isPlug(p) && !p.passive
+    && !ctx.index.get(`${Math.round(p.pos[0] * 100)},${Math.round(p.pos[1] * 100)},${Math.round(p.pos[2] * 100)}`).some((q) => q !== p && kit.mates(p, q)));
+}
+
+function goToCategory(category) {
+  $("search").value = "";
+  filterCards();
+  document.querySelector(`#cards h2[data-heading="${CSS.escape(category)}"]`)?.scrollIntoView({ block: "start", inline: "start" });
+  document.body.classList.remove("side-open");
+}
+
 let looseAt = 0;
 function drawSummary() {
   const box = $("summary");
@@ -947,6 +1025,9 @@ function drawSummary() {
     <h2>This build</h2>
     <p class="plain">${plural(scene.items.length, "part")}${pieces > 1 ? ` in ${pieces} separate pieces` : scene.items.length > 1 ? ", all joined" : ""}.<br>
        ${size[0]} &times; ${size[1]} &times; ${size[2]} mm, about ${gramsText(weight)} of PLA.</p>
+    ${pieces > 1 && !freePlugs() ? `<p class="callout">Nothing here has a free plug, so these parts cannot join each other yet. Plain blocks only have sockets: put a
+      <button class="link" data-go="Twist blocks">twist block</button>, a <button class="link" data-go="Mini blocks">mini block</button> or a
+      <button class="link" data-go="Joiners">joiner</button> between them.</p>` : ""}
     ${loose.length ? `<p class="callout">${loose.length === 1 ? "One part is" : `${loose.length} parts are`} only partly joined. <button class="link" data-do="show-loose">Show ${loose.length === 1 ? "it" : "the next"}</button></p>` : ""}
     ${scaleSelect}
     <h4>To print</h4>
@@ -968,6 +1049,8 @@ $("summary").addEventListener("change", (event) => {
 });
 
 $("summary").addEventListener("click", (event) => {
+  const go = event.target.closest("button")?.dataset.go;
+  if (go) return goToCategory(go);
   const action = event.target.closest("button")?.dataset.do;
   if (action === "print") return openExport();
   if (action === "show-loose") {
@@ -1047,10 +1130,29 @@ function makeCard(part, recent = false) {
   card.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || drag || press) return;
     hidePopover();
-    press = { part, x: event.clientX, y: event.clientY, pointerId: event.pointerId, touch: event.pointerType !== "mouse" };
+    const touch = event.pointerType !== "mouse";
+    press = { part, x: event.clientX, y: event.clientY, at: [event.clientX, event.clientY], pointerId: event.pointerId, touch, moved: 0, hold: null };
     ensureMeshes(part).catch(() => {});
-    if (event.pointerType === "mouse") event.preventDefault();
+    if (!touch) return event.preventDefault();
+    // a finger that rests on a part picks it up
+    const mine = press;
+    press.hold = setTimeout(() => {
+      if (press !== mine || mine.moved > DRAG_START_TOUCH) return;
+      press = null;
+      navigator.vibrate?.(12);
+      dragFromList(part, { clientX: mine.at[0], clientY: mine.at[1], pointerId: mine.pointerId });
+    }, 380);
   });
+  // The first move of a finger decides: across the list, or with a part already in hand,
+  // the page must not scroll under it.
+  card.addEventListener("touchmove", (event) => {
+    if (drag || waiting) return event.preventDefault();
+    if (!press?.touch) return;
+    const finger = event.touches[0];
+    const dx = Math.abs(finger.clientX - press.x), dy = Math.abs(finger.clientY - press.y);
+    if (Math.hypot(dx, dy) > 4 && pullsOut(dx, dy)) event.preventDefault();
+  }, { passive: false });
+  card.addEventListener("contextmenu", (event) => event.preventDefault());
   card.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
@@ -1075,11 +1177,7 @@ function addCard(part) {
     const chip = document.createElement("button");
     chip.textContent = part.category;
     chip.title = `Go to ${part.category.toLowerCase()}`;
-    chip.addEventListener("click", () => {
-      $("search").value = "";
-      filterCards();
-      title.scrollIntoView({ block: "start", inline: "start" });
-    });
+    chip.addEventListener("click", () => goToCategory(part.category));
     $("chips").append(chip);
   }
   const card = makeCard(part);

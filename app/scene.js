@@ -176,7 +176,7 @@ export class Scene {
 
   // Why nothing was found for a payload at a point, in words for the person building.
   whyNot(payload, ctx, hit) {
-    const free = (p) => ctx.index.get(`${Math.round(p.pos[0] * 100)},${Math.round(p.pos[1] * 100)},${Math.round(p.pos[2] * 100)}`).length === 1;
+    const free = (p) => !ctx.index.get(`${Math.round(p.pos[0] * 100)},${Math.round(p.pos[1] * 100)},${Math.round(p.pos[2] * 100)}`).some((q) => q !== p && kit.mates(p, q));
     const near = ctx.fixed.filter((p) => kit.norm(kit.sub(p.pos, hit)) < TARGET_REACH && free(p));
     const mine = this.payloadPorts(payload);
     const plugsHere = near.some(kit.isPlug), socketsHere = near.some((p) => !kit.isPlug(p));
