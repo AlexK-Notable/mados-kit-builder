@@ -11,7 +11,9 @@ app/data/custom/ so builds that use them open again later.
 """
 import argparse
 import json
+import glob
 import os
+import re
 import sys
 import threading
 import webbrowser
@@ -27,11 +29,31 @@ PORT = 8377
 sys.path.insert(0, HERE)
 try:
     import appdata as A
-    CAN_GENERATE, WHY_NOT = True, ""
-except Exception as error:            # CAD packages not installed: the ready-made parts still work
-    A, CAN_GENERATE, WHY_NOT = None, False, f"{type(error).__name__}: {error}"
+except Exception:                     # CAD packages not installed: the ready-made parts still work
+    A = None
 
 building = threading.Lock()
+FETCH = "python3 tools/fetch_upstream.py"
+
+
+def generator():
+    """(can parts be made to order here, and if not, why, in words for the person asking)."""
+    if A is None:
+        return False, ("The Python packages that build parts are not installed. In the builder's folder, run "
+                       "pip install -r requirements.txt and start it again.")
+    if not glob.glob(os.path.join(HERE, "upstream", "MADOS-*", "*.step")):
+        return False, ("The author's files, which new parts are cut from, are not on this computer yet. In the "
+                       f"builder's folder, run {FETCH} --step-only and then {FETCH} MADOS-20HO.")
+    return True, ""
+
+
+def in_words(error):
+    """An error from the part generators, for someone who only wanted a part."""
+    missing = re.search(r"expected one (?:STEP file|STL) for (MADOS-[A-Z0-9-]+)", str(error))
+    if missing:
+        return (f"The author's file for {missing.group(1)}, which this part is cut from, is not on this computer. "
+                f"In the builder's folder, run {FETCH} {missing.group(1)} and try again.")
+    return f"The part could not be made. The generator said: {type(error).__name__}: {error}"
 
 
 def read_custom():
@@ -75,11 +97,14 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         url = urlparse(self.path)
         if url.path == "/api/ping":
-            return self.reply(200, {"generate": CAN_GENERATE, "why_not": WHY_NOT})
+            able, why = generator()
+            return self.reply(200, {"generate": able, "why_not": why})
+        if url.path == "/api/custom":
+            return self.reply(200, read_custom())
         if url.path == "/api/generate":
-            if not CAN_GENERATE:
-                return self.reply(503, {"error": "This copy can only use the ready-made parts. "
-                                                 "Install the packages in requirements.txt to make parts to order."})
+            able, why = generator()
+            if not able:
+                return self.reply(503, {"error": why})
             settings = dict(parse_qsl(url.query))
             kind = settings.pop("kind", "")
             try:
@@ -87,7 +112,7 @@ class Handler(SimpleHTTPRequestHandler):
             except ValueError as error:
                 return self.reply(400, {"error": str(error)})
             except Exception as error:
-                return self.reply(500, {"error": f"The part could not be built ({type(error).__name__}: {error})"})
+                return self.reply(500, {"error": in_words(error)})
         return super().do_GET()
 
     def log_message(self, format, *args):       # only the made-to-order requests are logged
@@ -105,7 +130,8 @@ def main():
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     url = f"http://127.0.0.1:{args.port}/"
     print(f"MADOS kit builder: {url}")
-    print("Parts to order: " + ("available" if CAN_GENERATE else f"not available here ({WHY_NOT})"))
+    able, why = generator()
+    print("Parts to order: " + ("available" if able else f"not available here. {why}"))
     print("Ctrl+C stops it.", flush=True)
     if not args.no_browser:
         webbrowser.open(url)

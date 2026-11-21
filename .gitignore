@@ -1,5 +1,5 @@
 # Official MADOS files (CC0) are downloaded, not committed: tools/fetch_upstream.py
-upstream/MADOS-*/
+upstream/MADOS-*
 # Parts made to order while the app runs
 app/data/custom/
 out/

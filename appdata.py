@@ -156,7 +156,105 @@ def annotate(entry):
         if found:
             layer = " or ".join(v for v in found.groups() if v)
     entry["print"]["layer"] = layer
+    if entry["category"] != "Custom":
+        entry["label"], entry["note"] = in_words(entry)
     return entry
+
+
+GENERATED = "Made by this builder from the official joint shapes, in a size the official range does not have."
+TIGHTNESS = "Plug tightness {} on the author's scale of 0 (loosest) to 9."
+
+
+def in_words(entry):
+    """(label, note) for a part, for someone who has never seen it: what it is for, where its
+    plugs are, and how it differs from the part with the same name.  Written from the ports
+    the part really has, so it cannot promise a joint that is not there."""
+    import collections
+    import re
+    name = entry["name"]
+    official = re.fullmatch(r"MADOS-20([A-Z])[A-Z]", name)
+    family = official.group(1) if official else {"channel_block": "B", "twist_block": "A", "cover": "C",
+                                                 "wrap_cover": "C", "hinge": "H"}[entry["kind"]]
+    sides = collections.Counter()          # (body, face) -> plugs there
+    sockets = openings = 0
+    for index, body in enumerate(entry["bodies"]):
+        for port in body["ports"]:
+            if port.get("passive"):
+                continue
+            if port["kind"] == K.SOCKET:
+                if port.get("system") == K.HOLE:
+                    openings += 1
+                else:
+                    sockets += 1
+            elif port.get("system") != K.HOLE:
+                sides[(index, tuple(round(v) for v in port["normal"]))] += 1
+    faces = [face for (_, face) in sides]
+    opposite = len(faces) == 2 and all(a == -b for a, b in zip(*faces))
+    plugs = sum(sides.values())
+    b = entry["print"]["bbox"]
+    label = entry["label"].replace(" (generated)", "")
+    base = re.sub(r" \(20[A-Z]{2}\)$", "", label)
+    base = re.sub(r", (plugs both ends|no plugs|one plug)$", "", base)      # what this function itself adds
+    code = f" ({name[6:]})" if official else ""
+    strength = re.search(r"_s(\d)", name)
+    tight = f" {TIGHTNESS.format(strength.group(1))}" if strength else ""
+
+    if family == "B":
+        what = ("A hollow block with sockets on every face and no plugs. To hold onto another block it needs a part with "
+                "plugs, or a joiner pushed or screwed into the opening in the middle of a face.")
+        if "bundle" in label:
+            what = "Four blocks fused side by side into one piece. Sockets on every face and no plugs."
+    elif family == "A":
+        if len(faces) == 2:
+            what = ("Twist plugs on both ends, so it joins two blocks end to end: push the plugs into four sockets and turn "
+                    "until they lock. The second end locks by turning the other way.")
+            if "Double" not in base:
+                base += ", plugs both ends"
+        else:
+            what = ("Four twist plugs on one end: push them into four sockets and turn until they lock. Its other faces "
+                    "have sockets. This is the usual way to join one block to another.")
+        what += tight
+    elif family in "IJK":
+        what = "A small piece on the 10 mm grid." if family != "K" else "A small piece only 5 mm thick."
+        if not plugs:
+            what += " No plugs."
+            base += ", no plugs" if family == "J" else ""
+        elif opposite:
+            what += " Snap plugs on two opposite sides, so it can sit between two blocks and hold them together."
+        elif len(faces) == 2:
+            what += " Snap plugs on two neighbouring sides."
+        else:
+            what += f" {'One snap plug' if plugs == 1 else f'{plugs} snap plugs'} on one side."
+            base += ", one plug" if family == "J" and plugs == 1 and "10mm" in base else ""
+    elif family == "C":
+        panels = len(entry["bodies"])
+        what = (f"A thin cover that prints flat and folds round {panels} sides of a block, snapping onto each."
+                if panels > 1 else "A thin plate that snaps onto a face to close it off.") + tight
+    elif family == "H":
+        what = ("Two leaves on a pivot that prints in place as one piece. Each leaf snaps onto a part, and the joint swings "
+                "a quarter turn either way.")
+        if len(faces) == 1:
+            what += " Only one of its leaves has a plug."
+        what += tight
+    elif family == "D":
+        what = "Fits into an inside corner and plugs into both parts, to hold them square to each other."
+        if b[5] - b[2] < 15:
+            what += " Half thickness (10 mm)."
+    elif family == "E":
+        what = f"A flat open frame 10 mm thick, with snap plugs along {'two neighbouring edges' if len(faces) == 2 else 'one edge'}."
+    else:
+        what = OFFICIAL_USE.get(name, "A joiner that goes into the opening in the middle of a block's face.")
+
+    count = []
+    if plugs and family not in "A":
+        count.append(f"{plugs} plug{'s' if plugs != 1 else ''}")
+    if sockets:
+        count.append(f"{sockets} socket{'s' if sockets != 1 else ''}")
+    if openings:
+        count.append(f"{openings} middle opening{'s' if openings != 1 else ''} for joiners")
+    counted = f" It has {', '.join(count[:-1]) + ' and ' + count[-1] if len(count) > 1 else count[0]}." if count and family not in "FG" else ""
+    lead = f"Official part {name}." if official else GENERATED
+    return base + (code if official else " (generated)"), f"{what}{counted} {lead}"
 
 
 # ------------------------------------------------------------------ parts made to order
@@ -222,14 +320,15 @@ OFFICIAL_USE = {
     "MADOS-20AU": "Twist plugs on both ends.",
     "MADOS-20AV": "Twist plugs on both ends.",
     "MADOS-20HA": "Print-in-place hinge with a socket on one leaf and a plug on the other.",
-    "MADOS-20GE": "Screws into the threaded hole in the middle of a block's face, half in each of two blocks, "
-                  "with a 5 mm Allen key. This is what joins two plain blocks face to face.",
-    "MADOS-20FC": "Two threaded bosses 20 mm apart: each sits in the threaded hole of a face, tying two neighbouring "
-                  "holes together.",
-    "MADOS-20FD": "Four threaded bosses on a 20 mm square: ties four neighbouring threaded holes together.",
+    "MADOS-20GE": "A threaded pin that screws into the opening in the middle of a block's face, half into each of two "
+                  "blocks, with a 5 mm Allen key. This is what joins two plain blocks face to face.",
+    "MADOS-20FC": "A flat bar with two stubs 20 mm apart. Each stub goes into the middle opening of a face, tying two "
+                  "blocks that stand side by side together.",
+    "MADOS-20FD": "A flat square with four stubs 20 mm apart. Each goes into the middle opening of a face, tying four "
+                  "neighbouring blocks together.",
 }
 # How the inner square joiners are used [the author's About page and kitparts.CHANNEL_JOINERS].
-IN_CHANNEL = "It slides into the diamond-shaped channel in the middle of a block's face, turned corner up, and clicks in."
+IN_CHANNEL = "A bar that slides into the diamond-shaped opening in the middle of a block's face, corner up, and clicks in."
 OFFICIAL_USE.update({
     "MADOS-20FT": f"{IN_CHANNEL} Half goes into each of two blocks to join them; its cross holes take an M8 rod.",
     "MADOS-20FU": f"{IN_CHANNEL} Half goes into each of two blocks to join them; its cross holes take an M8 rod.",
@@ -237,8 +336,8 @@ OFFICIAL_USE.update({
     "MADOS-20FK": f"{IN_CHANNEL} Half goes into each of two blocks; its side thread takes an M8 bolt.",
     "MADOS-20FL": f"{IN_CHANNEL} Half goes into each of two blocks; its side thread takes an M8 bolt.",
     "MADOS-20FA": f"{IN_CHANNEL} It rests in the middle of a block and takes an M8 bolt from the side.",
-    "MADOS-20FB": f"{IN_CHANNEL} The bar goes into a block; the builder does not yet know how its boss meets a plate, "
-                  "so only the bar snaps.",
+    "MADOS-20FB": f"{IN_CHANNEL} It is meant to hold a plate against a block. This builder only knows how the bar goes "
+                  "into the block, not yet how the plate goes on.",
 })
 
 

@@ -37,17 +37,42 @@ try {
   throw error;
 }
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const world = new THREE.Scene();
 world.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 1.5));
 const sun = new THREE.DirectionalLight(0xffffff, 1.9);
-sun.position.set(120, -160, 300);
-world.add(sun);
+sun.position.set(-75, -126, 300);
+sun.castShadow = true;                       // shadows fall on the floor only: they show how high a part is and what it is over
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.bias = -0.0005;
+world.add(sun, sun.target);
+const SUN_FROM = new THREE.Vector3(-0.25, -0.42, 1).normalize();    // high, so a shadow lies close by its part; from the front left, so in the usual view it falls to the right where it can be seen
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), new THREE.ShadowMaterial({ opacity: 0.22 }));
+floor.position.z = 0.04;
+floor.receiveShadow = true;
+world.add(floor);
+
+// Aim the shadow-casting light at the parts, wide enough to take in a part being carried.
+function aimSun(bounds) {
+  const centre = bounds ? bounds.centre : new THREE.Vector3(0, 0, 20);
+  const reach = (bounds ? bounds.radius : 40) + 140;
+  sun.target.position.copy(centre);
+  sun.position.copy(centre).addScaledVector(SUN_FROM, reach + 300);
+  const cam = sun.shadow.camera;
+  cam.left = cam.bottom = -reach; cam.right = cam.top = reach;
+  cam.near = 10; cam.far = 2 * reach + 700;
+  cam.updateProjectionMatrix();
+}
 const fill = new THREE.DirectionalLight(0xffffff, 0.6);
-fill.position.set(-200, 120, 80);
+fill.position.set(200, 60, 80);          // lights the faces the sun leaves in shade
 world.add(fill);
 let grid = null;
 const selectionBox = new THREE.Box3Helper(new THREE.Box3(), 0x1f9d6c);
 selectionBox.visible = false;
+selectionBox.material.depthTest = false;       // seen through whatever is in front of it
+selectionBox.material.transparent = true;
+selectionBox.renderOrder = 9;
 world.add(selectionBox);
 
 const camera = new THREE.PerspectiveCamera(38, 1, 2, 6000);
@@ -86,6 +111,7 @@ let animation = null;        // the snap in progress
 let fly = null;              // the view move in progress
 let copied = null;           // what Ctrl+C remembered: {ids}
 let examples = [];
+let notes = [];              // what to look at in the example that is open: [{text, item}]
 const undoStack = [], redoStack = [];
 let hintTimer = null;
 
@@ -204,6 +230,9 @@ function syncViews() {
     view.material.dispose();
     views.delete(id);
   }
+  // a selected joiner sits inside other parts, so they are drawn faint for it to show
+  const chosenItem = scene.get(selected);
+  const buried = Boolean(chosenItem) && scene.partOf(chosenItem).kind === "joiner" && !drag;
   for (const item of scene.items) {
     const part = scene.partOf(item);
     let view = views.get(item.id);
@@ -212,7 +241,7 @@ function syncViews() {
       const material = new THREE.MeshStandardMaterial({ color: partColor(part), roughness: 0.72, metalness: 0.02 });
       const group = new THREE.Group();
       const meshes = bodyMeshes(part, material);
-      for (const m of meshes) { m.userData.id = item.id; group.add(m); }
+      for (const m of meshes) { m.userData.id = item.id; m.castShadow = true; group.add(m); }
       world.add(group);
       view = { group, meshes, material, name: item.name };
       views.set(item.id, view);
@@ -221,6 +250,9 @@ function syncViews() {
     const lit = marked.has(item.id) ? 0x2c6f9a : item.id === selected ? 0x16513e : item.id === hovered ? 0x33332e : 0x000000;
     view.material.emissive.setHex(lit);
     view.material.emissiveIntensity = 0.6;
+    const faint = buried && item.id !== selected;
+    if (view.material.transparent !== faint) { view.material.transparent = faint; view.material.depthWrite = !faint; view.material.needsUpdate = true; }
+    view.material.opacity = faint ? 0.28 : 1;
     view.group.visible = !(drag && drag.hidden.includes(item.id));
   }
   const chosen = scene.get(selected);
@@ -229,6 +261,7 @@ function syncViews() {
     const box = scene.payloadBox([{ name: chosen.name, angles: chosen.angles, rel: chosen.pose }], kit.IDENTITY);
     selectionBox.box.set(new THREE.Vector3(...box.min).subScalar(0.6), new THREE.Vector3(...box.max).addScalar(0.6));
   }
+  aimSun(boundsOf());
   requestRender();
 }
 
@@ -254,17 +287,20 @@ function refresh() {
 
 // ---------------------------------------------------------------- undo
 function checkpoint() {
+  notes = [];                 // the notes of an example describe it as it was opened
   undoStack.push(JSON.stringify(scene.toJSON()));
   if (undoStack.length > 200) undoStack.shift();
   redoStack.length = 0;
 }
 
 function restore(from, to) {
-  if (!from.length) return;
+  if (!from.length) return hint(from === undoStack ? "Nothing to undo" : "Nothing to redo", false, 1500);
   to.push(JSON.stringify(scene.toJSON()));
   scene.load(JSON.parse(from.pop()));
   selected = null;
+  notes = [];
   refresh();
+  hint(from === undoStack ? "Undone. Ctrl+Shift+Z redoes it." : "Redone", false, 1800);
 }
 
 // ---------------------------------------------------------------- picking
@@ -298,7 +334,8 @@ function groundUnderRay(ray) {
 }
 
 // ---------------------------------------------------------------- the view
-const VIEW_DIRECTIONS = { corner: [170, -230, 170], front: [0, -1, 0.18], side: [1, 0, 0.18], top: [0, -0.03, 1] };
+const VIEW_DIRECTIONS = { corner: [170, -230, 170], front: [0, -1, 0.001], side: [1, 0, 0.001], top: [0, -0.001, 1] };
+const WIDE = 38, FLAT = 7;      // degrees of view: the usual one, and a long-lens one with almost no perspective
 
 function resize() {
   const stage = $("stage");
@@ -336,6 +373,7 @@ function boundsOf(ids = null) {
 
 // Bring the whole build (or some items) into view, from the current direction or a named one.
 function fitView(view = null, glide = true, ids = null) {
+  if (view) setLens(view === "corner" ? WIDE : FLAT, false);
   const bounds = boundsOf(ids);
   const direction = view ? new THREE.Vector3(...VIEW_DIRECTIONS[view]).normalize() : camera.position.clone().sub(controls.target).normalize();
   if (!bounds) return flyTo(new THREE.Vector3(0, 0, 25), new THREE.Vector3(0, 0, 25).add((view ? direction : new THREE.Vector3(...VIEW_DIRECTIONS.corner).normalize()).multiplyScalar(335)), glide);
@@ -345,9 +383,23 @@ function fitView(view = null, glide = true, ids = null) {
   flyTo(bounds.centre, bounds.centre.clone().add(direction.multiplyScalar(distance)), glide);
 }
 
+// Change the lens and move the camera so that things stay the same size on screen.
+function setLens(fov, keepSize = true) {
+  if (camera.fov === fov) return;
+  if (keepSize) {
+    const scale = Math.tan((camera.fov * Math.PI) / 360) / Math.tan((fov * Math.PI) / 360);
+    camera.position.sub(controls.target).multiplyScalar(scale).add(controls.target);
+  }
+  camera.fov = fov;
+  camera.far = fov === FLAT ? 40000 : 6000;
+  camera.updateProjectionMatrix();
+  controls.update();
+  requestRender();
+}
+
 function zoom(factor) {
   const offset = camera.position.clone().sub(controls.target).multiplyScalar(factor);
-  if (offset.length() < 30 || offset.length() > 4000) return;
+  if (offset.length() < 30 || offset.length() > (camera.fov === FLAT ? 30000 : 4000)) return;
   flyTo(controls.target.clone(), controls.target.clone().add(offset));
 }
 
@@ -381,11 +433,11 @@ function frame(now) {
 }
 
 // ---------------------------------------------------------------- dragging
-function visualFor(payload, material) {
+function visualFor(payload, material, shadow = false) {
   const group = new THREE.Group();
   const sets = payload.map((m) => {
     const meshes = bodyMeshes(scene.parts.get(m.name), material);
-    for (const mesh of meshes) group.add(mesh);
+    for (const mesh of meshes) { mesh.castShadow = shadow; group.add(mesh); }
     return meshes;
   });
   world.add(group);
@@ -458,14 +510,19 @@ function beginDrag(payload, { moving = [], prefR, event, label }) {
     pointerId: event.pointerId ?? null,
     hidden: moving,
     ctx: scene.context(moving),
-    held: visualFor(payload, new THREE.MeshStandardMaterial({ color: partColor(part), roughness: 0.72, transparent: true, opacity: 0.92 })),
-    ghost: visualFor(payload, new THREE.MeshBasicMaterial({ color: 0x1f9d6c, transparent: true, opacity: 0.32, depthWrite: false })),
+    held: visualFor(payload, new THREE.MeshStandardMaterial({ color: partColor(part), roughness: 0.72, transparent: true, opacity: 0.92 }), true),
+    ghost: visualFor(payload, new THREE.MeshBasicMaterial({ color: 0x18c37f, transparent: true, opacity: 0.45, depthWrite: false })),
     target: null,
     remove: false,
     x: event.clientX, y: event.clientY,
     chip: makeChip(label),
   };
   drag.markers = plugMarkers(payload, drag.ctx);
+  const staying = scene.items.filter((it) => !moving.includes(it.id));
+  if (staying.length) {
+    const b = scene.payloadBox(staying.map((it) => ({ name: it.name, angles: it.angles, rel: it.pose })), kit.IDENTITY);
+    drag.box = new THREE.Box3(new THREE.Vector3(...b.min).subScalar(6), new THREE.Vector3(...b.max).addScalar(6));
+  }
   controls.enabled = false;
   document.body.style.cursor = "grabbing";
   $("dragtools").hidden = false;
@@ -473,6 +530,15 @@ function beginDrag(payload, { moving = [], prefR, event, label }) {
   if (hovered != null) hovered = null;
   syncViews();
   updateDrag();
+}
+
+// Does the cursor's ray pass through the build's box and come down on the floor well behind
+// it?  Then the point on the ray nearest the middle of the build, as [x, y, z]; else null.
+function throughBuild(ray, ground, box) {
+  if (!box) return null;
+  if (!ray.intersectsBox(box)) return null;
+  if (ground && ground[0] > box.min.x - 15 && ground[0] < box.max.x + 15 && ground[1] > box.min.y - 15 && ground[1] < box.max.y + 15) return null;
+  return ray.closestPointToPoint(box.getCenter(new THREE.Vector3()), new THREE.Vector3()).toArray();
 }
 
 function overPalette(x, y) {
@@ -501,7 +567,17 @@ function updateDrag() {
       }
     } else {
       const ground = groundUnderRay(ray);
-      if (ground) {
+      const through = throughBuild(ray, ground, drag.box);
+      if (through) {
+        // the cursor is over the build but between its parts: the floor it would reach is far behind
+        target = scene.placementAlongRay(payload, ctx, ray.origin.toArray(), ray.direction.toArray(), prefR);
+        if (!target) {
+          const box = scene.payloadBox(payload, { r: prefR, t: [0, 0, 0] });
+          const centre = [0, 1, 2].map((i) => (box.min[i] + box.max[i]) / 2);
+          free = { r: prefR, t: kit.sub(through, centre) };
+          message = "Nothing to join just here. Point at a part, or at the floor beside the build"; bad = true;
+        }
+      } else if (ground) {
         const rough = scene.groundPose(payload, prefR, ground[0], ground[1]);
         target = scene.snapNear(payload, ctx, rough);
         if (!target && scene.fits(payload, rough, ctx)) target = { pose: rough, payload, engaged: 0, normal: [0, 0, 1] };
@@ -531,6 +607,7 @@ function updateDrag() {
   }
   if (removing) message = "Let go to remove it from the build";
   drag.reason = bad ? message : null;
+  if (drag.note && performance.now() < drag.noteUntil && !bad) message = `${message}. ${drag.note}`;
   hint(message, bad);
   requestRender();
 }
@@ -587,6 +664,23 @@ function spinHeld(sign = 1) {
   }
 }
 
+// Say something alongside the drag hints for a few seconds.
+function dragNote(text, ms = 2600) {
+  if (!drag) return;
+  drag.note = text;
+  drag.noteUntil = performance.now() + ms;
+  updateDrag();
+}
+
+// R and F from the keyboard or the buttons: do it, and say so when it changed nothing.
+function turnByHand(how) {
+  if (!drag) return;
+  const shape = () => (drag.target ? `${kit.poseKey(drag.target.pose)}${drag.target.payload.map((m) => m.angles.join()).join("|")}` : "none");
+  const before = shape();
+  if (how === "spin") spinHeld(); else turnHeld(screenRightAxis());
+  if (drag.target && drag.target.engaged && shape() === before) dragNote(how === "spin" ? "It fits no other way round here" : "It fits no other way up here");
+}
+
 // Keys are for the build once a part is in hand, not for whatever box was typed in last.
 function leaveFields() {
   if (typing(document.activeElement)) document.activeElement.blur();
@@ -639,7 +733,13 @@ controls.target.set(0, 0, 25);
 controls.maxPolarAngle = Math.PI * 0.62;
 controls.zoomToCursor = true;
 controls.addEventListener("change", requestRender);
-controls.addEventListener("start", () => { fly = null; });
+controls.addEventListener("start", () => { fly = null; turnedFrom = controls.getAzimuthalAngle() + 10 * controls.getPolarAngle(); });
+// turning away from a straight-on view brings the usual lens back
+let turnedFrom = 0;
+controls.addEventListener("change", () => {
+  if (camera.fov !== FLAT || fly) return;
+  if (Math.abs(controls.getAzimuthalAngle() + 10 * controls.getPolarAngle() - turnedFrom) > 0.02) setLens(WIDE);
+});
 controls.update();
 
 let hoverQueued = false;
@@ -691,6 +791,8 @@ window.addEventListener("pointermove", (event) => {
       beginDrag(scene.payloadOf(ids).map(({ id, ...member }) => member), { prefR: item.pose.r, event, label: `Copy of ${label}` });
     } else {
       beginDrag(scene.payloadOf(ids), { moving: ids, prefR: item.pose.r, event, label });
+      const joined = scene.pieceOf(item.id).length - 1;
+      if (!event.shiftKey && joined) dragNote(`Only this part moves: hold Shift as you drag to bring the ${joined === 1 ? "part" : `${joined} parts`} joined to it`, 3500);
     }
     return;
   }
@@ -755,7 +857,7 @@ canvas.addEventListener("dblclick", (event) => {
 });
 canvas.addEventListener("pointerleave", () => { if (hovered != null) { hovered = null; syncViews(); } });
 
-for (const [id, act] of [["drag-spin", () => spinHeld()], ["drag-tip", () => turnHeld(screenRightAxis())], ["drag-cancel", () => endDrag(false)]]) {
+for (const [id, act] of [["drag-spin", () => turnByHand("spin")], ["drag-tip", () => turnByHand("tip")], ["drag-cancel", () => endDrag(false)]]) {
   $(id).addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); act(); });
 }
 
@@ -773,8 +875,8 @@ window.addEventListener("keydown", (event) => {
     return;
   }
   if (drag) {
-    if (key === "r") spinHeld();
-    else if (key === "f") turnHeld(screenRightAxis());
+    if (key === "r") turnByHand("spin");
+    else if (key === "f") turnByHand("tip");
     else if (key === "escape") endDrag(false);
     else return;
     event.preventDefault();
@@ -795,6 +897,9 @@ window.addEventListener("keydown", (event) => {
   else if (key === "pageup") moveSelected("up");
   else if (key === "pagedown") moveSelected("down");
   else if (arrows[key] && selected != null) moveSelected("slide", arrows[key], event.shiftKey ? 5 : 10);
+  else if (key === "t") turnPart();
+  else if (key === "[" || key === "]") stepSelection(key === "]" ? 1 : -1);
+  else if (key === "n" && attached) nextPlace();
   else if (key === "home" || key === "0") fitView();
   else if (key === "/") $("search").focus();
   else if (key === "?") $("helpbox").showModal();
@@ -849,18 +954,67 @@ function landOnFloor(payload, r, said) {
   animation = { ids, offset: [0, 0, HOVER], start: performance.now() };
   refresh();
   const box = scene.payloadBox(payload, pose);
-  if (!inView([0, 1, 2].map((i) => (box.min[i] + box.max[i]) / 2))) fitView();
+  const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => [k & 1 ? box.max[0] : box.min[0], k & 2 ? box.max[1] : box.min[1], k & 4 ? box.max[2] : box.min[2]]);
+  if (!corners.every(inView)) fitView();
   hint(said, false, 3200);
   return ids;
 }
 
-// A click on a part in the list: stand one on the floor beside the build.
-async function addToFloor(part) {
+// Select the next or the previous placed part, for those without a mouse.
+function stepSelection(step) {
+  if (!scene.items.length) return;
+  const at = scene.items.findIndex((it) => it.id === selected);
+  selected = scene.items[(at + step + scene.items.length) % scene.items.length].id;
+  refresh();
+  if (!inView(scene.get(selected).pose.t)) fitView(null, true, [selected]);
+  hint(`${scene.partOf(scene.get(selected)).label}. Enter on a part in the list joins one onto it`, false, 3500);
+}
+
+// Enter on a part in the list while a placed part is selected: join it onto that part, at
+// the place that engages the most joints.  N then moves it to the next place it fits.
+let attached = null;       // {id, places, at}
+function attachTo(part, targetId) {
+  const payload = singlePayload(part);
+  const places = scene.placementsOn(payload, scene.context(), targetId);
+  if (!places.length) return false;
+  checkpoint();
+  const id = scene.place(payload, places[0].pose)[0];
+  attached = { id, target: targetId, places, at: 0 };
+  rememberRecent(part.name);
+  refresh();
+  if (!inView(scene.get(id).pose.t)) fitView();
+  hint(`Joined on with ${plural(places[0].engaged, "joint")}. ${places.length > 1 ? `N moves it to the next of ${places.length} places it fits` : "It fits nowhere else on that part"}`, false, 6000);
+  return true;
+}
+
+function nextPlace() {
+  const item = attached && scene.get(attached.id);
+  if (!item) { attached = null; return; }
+  const payload = scene.payloadOf([item.id]);
+  const ctx = scene.context([item.id]);
+  for (let tries = 0; tries < attached.places.length; tries++) {
+    attached.at = (attached.at + 1) % attached.places.length;
+    const place = attached.places[attached.at];
+    if (!scene.fits(payload, place.pose, ctx)) continue;
+    checkpoint();
+    scene.place(payload, place.pose);
+    refresh();
+    return hint(`Place ${attached.at + 1} of ${attached.places.length}, ${plural(place.engaged, "joint")}`, false, 4000);
+  }
+}
+
+// A click on a part in the list: stand one on the floor beside the build.  From the
+// keyboard, with a placed part selected, it is joined onto that part instead.
+async function addToFloor(part, fromKeys = false) {
   leaveFields();
   const card = document.querySelector(`.card[data-part="${CSS.escape(part.name)}"]`);
   card?.classList.add("waiting");
   try { await ensureMeshes(part); } catch { card?.classList.remove("waiting"); return hint(`The shape of ${part.label} could not be fetched`, true, 4000); }
   card?.classList.remove("waiting");
+  if (fromKeys && selected != null && scene.get(selected)) {
+    if (attachTo(part, selected)) return;
+    hint(`${part.label} cannot join onto the selected part, so it stands on the floor`, false, 4000);
+  }
   if (landOnFloor(singlePayload(part), kit.IDENTITY.r, scene.items.length ? "Added to the floor. Drag it onto the build." : "On the floor. Drag the next part onto it.")) rememberRecent(part.name);
 }
 
@@ -903,6 +1057,16 @@ function moveSelected(how, direction = null, step = 10) {
   if (!scene.fits(payload, pose, ctx)) return hint(how === "down" ? "It cannot go lower" : "Something is in the way", true, 2000);
   checkpoint();
   scene.place(payload, pose);
+  refresh();
+}
+
+// Turn just the selected part in the joint that holds it.
+function turnPart() {
+  if (selected == null) return;
+  const pose = scene.turnedInPlace(selected);
+  if (!pose) return hint(scene.engagedCount([selected]) ? "It fits no other way round here" : "It is not joined to anything: R turns it where it stands", true, 2800);
+  checkpoint();
+  scene.get(selected).pose = pose;
   refresh();
 }
 
@@ -953,6 +1117,7 @@ function drawSelection() {
     ${loose.map((g) => `<p class="callout">Only ${g.engaged} of its ${g.of} plugs on one side ${g.engaged === 1 ? "is" : "are"} in a socket. It holds, but weakly.</p>`).join("")}
     <div class="row">
       <button data-do="copy" title="Ctrl+D: stand a copy on the floor">Copy</button>
+      ${joined ? `<button data-do="turn-part" title="T: turn just this part a quarter turn in its joint, if it fits another way round">Turn in place</button>` : ""}
       <button data-do="remove" class="danger" title="Delete, or drag it back onto the list">Remove</button>
     </div>
     ${joints}
@@ -967,7 +1132,7 @@ function drawSelection() {
       <button data-do="copy-piece" title="Stand a copy of all ${piece} joined parts on the floor">Copy all ${piece}</button>
       <button data-do="remove-piece" class="danger" title="Remove all ${piece} joined parts">Remove all ${piece}</button>
     </div>` : ""}
-    <p class="small">Drag the part to move it${piece > 1 ? "; hold Shift to bring the joined parts along" : ""}. The arrow keys slide it.</p>`;
+    <p class="small">Drag the part to move it${piece > 1 ? "; hold Shift to bring the joined parts along" : ""}.<span class="keys-only"> The arrow keys slide it.</span></p>`;
 }
 
 $("selection").addEventListener("click", (event) => {
@@ -979,6 +1144,7 @@ $("selection").addEventListener("click", (event) => {
   else if (action === "copy-piece") copySelected(true);
   else if (action === "remove") removeSelected(false);
   else if (action === "remove-piece") removeSelected(true);
+  else if (action === "turn-part") turnPart();
   else moveSelected(action);
 });
 
@@ -1004,7 +1170,12 @@ function freePlugs() {
 function goToCategory(category) {
   $("search").value = "";
   filterCards();
-  document.querySelector(`#cards h2[data-heading="${CSS.escape(category)}"]`)?.scrollIntoView({ block: "start", inline: "start" });
+  const list = $("cards");
+  const heading = list.querySelector(`h2[data-heading="${CSS.escape(category)}"]`);
+  if (heading) {
+    const from = list.getBoundingClientRect(), to = heading.getBoundingClientRect();
+    list.scrollTo({ left: list.scrollLeft + to.left - from.left - 4, top: list.scrollTop + to.top - from.top - 4, behavior: "smooth" });
+  }
   document.body.classList.remove("side-open");
 }
 
@@ -1015,23 +1186,28 @@ function drawSummary() {
   const scaleSelect = `<label class="scale-row" title="Every part, joints included, is printed this much bigger. Parts of different scales do not fit each other.">Kit scale
       <select id="scale">${[[1, "1 × (20 mm blocks)"], [1.5, "1.5 × (30 mm blocks)"], [2, "2 × (40 mm blocks)"]].map(([v, text]) => `<option value="${v}"${scene.scale === v ? " selected" : ""}>${text}</option>`).join("")}</select></label>`;
   if (!rows.length) {
-    box.innerHTML = `<h2>This build</h2><p>Nothing here yet. The parts you use are counted here, ready to print.</p>${scaleSelect}`;
+    box.innerHTML = `<h2>This build</h2><p>Nothing here yet. The parts you use are counted here, ready to print.</p>`;
     return;
   }
   const pieces = scene.pieces().length;
   const size = scene.extent().map((v) => Math.round(v * 10) / 10);
   const loose = [...new Set(scene.partlyJoined().map((g) => g.item))];
+  const afloat = scene.floating();
+  const afloatParts = afloat.reduce((n, ids) => n + ids.length, 0);
   box.innerHTML = `
+    ${notes.length ? `<div class="notes"><h2>Things to look at</h2><ol>${notes.map((note, k) => `<li><button class="link" data-note="${k}">${escapeHtml(note.text)}</button></li>`).join("")}</ol></div>` : ""}
     <h2>This build</h2>
     <p class="plain">${plural(scene.items.length, "part")}${pieces > 1 ? ` in ${pieces} separate pieces` : scene.items.length > 1 ? ", all joined" : ""}.<br>
        ${size[0]} &times; ${size[1]} &times; ${size[2]} mm, about ${gramsText(weight)} of PLA.</p>
     ${pieces > 1 && !freePlugs() ? `<p class="callout">Nothing here has a free plug, so these parts cannot join each other yet. Plain blocks only have sockets: put a
-      <button class="link" data-go="Twist blocks">twist block</button>, a <button class="link" data-go="Mini blocks">mini block</button> or a
-      <button class="link" data-go="Joiners">joiner</button> between them.</p>` : ""}
+      <button class="link" data-find="twist block">twist block</button>, a <button class="link" data-find="half c">Mini Block Half C</button> or a
+      <button class="link" data-find="grub">grub joiner</button> between them.</p>` : ""}
+    ${afloat.length ? `<p class="callout">${afloatParts === 1 ? "One part hangs" : `${afloatParts} parts hang`} in the air with nothing under ${afloatParts === 1 ? "it" : "them"}.
+      <button class="link" data-do="show-afloat">Show</button> &middot; <button class="link" data-do="settle">Set ${afloatParts === 1 ? "it" : "them"} down</button></p>` : ""}
     ${loose.length ? `<p class="callout">${loose.length === 1 ? "One part is" : `${loose.length} parts are`} only partly joined. <button class="link" data-do="show-loose">Show ${loose.length === 1 ? "it" : "the next"}</button></p>` : ""}
     ${scaleSelect}
-    <h4>To print</h4>
-    <table id="bom">${rows.map((row) => `<tr data-name="${escapeHtml(row.name)}" title="Click to find ${row.quantity === 1 ? "it" : "them"} in the build">
+    <h4>To print${scene.scale !== 1 ? `, each ${scene.scale} times the size its name says` : ""}</h4>
+    <table id="bom">${rows.map((row) => `<tr data-name="${escapeHtml(row.name)}" tabindex="0" title="Click to find ${row.quantity === 1 ? "it" : "them"} in the build">
       <td class="n">${row.quantity} &times;</td><td class="pic"><img src="${thumbOf(row.part)}" alt="" loading="lazy"></td>
       <td>${escapeHtml(row.label)}${fineLayers(row.part) ? ` <span class="fine" title="The author recommends ${escapeHtml(row.part.print.layer)} mm layers for this part">fine layers</span>` : ""}</td></tr>`).join("")}</table>
     ${fine.length ? `<p class="small" style="margin-top:8px">Parts marked fine layers print best at 0.1 or 0.12 mm; the rest at 0.2 mm.</p>` : ""}
@@ -1049,10 +1225,37 @@ $("summary").addEventListener("change", (event) => {
 });
 
 $("summary").addEventListener("click", (event) => {
-  const go = event.target.closest("button")?.dataset.go;
-  if (go) return goToCategory(go);
+  const find = event.target.closest("button")?.dataset.find;
+  if (find) {
+    $("search").value = find;
+    filterCards();
+    $("cards").scrollTo({ left: 0, top: 0 });
+    return document.body.classList.remove("side-open");
+  }
+  const note = notes[event.target.closest("button")?.dataset.note];
+  if (note) {
+    selected = scene.items[note.item]?.id ?? null;
+    refresh();
+    return fitView(null, true);
+  }
   const action = event.target.closest("button")?.dataset.do;
   if (action === "print") return openExport();
+  if (action === "show-afloat" || action === "settle") {
+    const afloat = scene.floating();
+    if (!afloat.length) return;
+    if (action === "show-afloat") {
+      selected = afloat[looseAt++ % afloat.length][0];
+      refresh();
+      return fitView(null, true, scene.pieceOf(selected));
+    }
+    checkpoint();
+    const height = (ids) => scene.payloadBox(scene.payloadOf(ids), scene.get(ids[0]).pose).min[2];
+    let moved = 0;
+    for (const ids of afloat.sort((a, b) => height(a) - height(b))) if (scene.settle(ids) > 0) moved += 1;
+    if (!moved) undoStack.pop();
+    refresh();
+    return hint(moved ? "Set down. Undo puts them back in the air." : "They cannot go any lower: something is under them", !moved, 3000);
+  }
   if (action === "show-loose") {
     const loose = [...new Set(scene.partlyJoined().map((g) => g.item))];
     if (!loose.length) return;
@@ -1075,6 +1278,7 @@ function markRow(row) {
   marked = next;
   syncViews();
 }
+$("summary").addEventListener("keydown", (event) => { if (event.key === "Enter" && event.target.matches("#bom tr")) event.target.click(); });
 $("summary").addEventListener("pointerover", (event) => markRow(event.target.closest("#bom tr")));
 $("summary").addEventListener("pointerleave", () => markRow(null));
 
@@ -1114,7 +1318,7 @@ function makeCard(part, recent = false) {
   card.className = "card";
   card.tabIndex = 0;
   card.setAttribute("role", "button");
-  card.setAttribute("aria-label", `${part.label}. Press Enter to stand one on the floor.`);
+  card.setAttribute("aria-label", `${part.label}. Press Enter to stand one on the floor, or to join one onto the selected part.`);
   if (recent) card.dataset.recent = part.name; else card.dataset.part = part.name;
   const image = document.createElement("img");
   image.alt = "";
@@ -1126,7 +1330,9 @@ function makeCard(part, recent = false) {
   image.src = thumbOf(part);
   const label = document.createElement("span");
   label.textContent = part.label;
-  card.append(image, label);
+  const size = document.createElement("small");
+  size.textContent = `${sizeOf(part).map((v) => Math.round(v)).join(" × ")} mm`;
+  card.append(image, label, size);
   card.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || drag || press) return;
     hidePopover();
@@ -1156,7 +1362,7 @@ function makeCard(part, recent = false) {
   card.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
-    addToFloor(part);
+    addToFloor(part, true);
   });
   card.addEventListener("pointerenter", (event) => { if (event.pointerType === "mouse") showPopover(part, card); });
   card.addEventListener("pointerleave", hidePopover);
@@ -1173,7 +1379,7 @@ function addCard(part) {
     cards = document.createElement("div");
     cards.className = "cards";
     cards.dataset.category = part.category;
-    list.append(title, cards);
+    $("list-foot").before(title, cards);
     const chip = document.createElement("button");
     chip.textContent = part.category;
     chip.title = `Go to ${part.category.toLowerCase()}`;
@@ -1213,15 +1419,38 @@ function drawRecent() {
   title.hidden = searching; cards.hidden = searching;
 }
 
+// Other words people use for the parts, each pointing at a word the list does use.
+const ALSO = { connector: "joiner", connectors: "joiner", joint: "joiner", pin: "grub", screw: "grub", bolt: "threaded", nut: "nut", lid: "hinge",
+  door: "hinge", flap: "hinge", bracket: "brace", angle: "brace", corner: "brace", panel: "cover", plate: "plate", tile: "cover", skin: "cover",
+  cube: "block", brick: "block", beam: "block", bar: "block", small: "mini", tiny: "mini", thin: "half", spacer: "half", frame: "plate" };
+
+// Does a part match every word typed?  A word matches the start of a word in the part's
+// name, number or kind ("20kg", "hing"), or a whole word of its description; so "lid" does
+// not find "slides".  Sizes match as typed: "40mm", "40", "20x60".
+function matchesSearch(part, words, alsoDescription = true) {
+  const squash = (text) => text.toLowerCase().replace(/(\d)\s*(mm|x)\s*/g, "$1$2 ").replace(/[^a-z0-9]+/g, " ").trim();
+  const name = squash(`${part.label} ${part.name} ${part.name.replace("MADOS-", "")} ${part.category}`).split(" ");
+  const tight = squash(part.label).replace(/ /g, "");
+  const said = new Set(squash(part.note).split(" "));
+  return words.every((typed) => {
+    const w = squash(typed).replace(/ /g, "");
+    if (!w) return true;
+    const named = (word) => name.some((n) => n.startsWith(word) || n.replace(/mm$/, "") === word) || (/\dx\d/.test(word) && tight.includes(word));
+    const one = (word) => named(word) || (alsoDescription && said.has(word));
+    return one(w) || one(w.replace(/s$/, "")) || (ALSO[w] ? named(ALSO[w]) : false);
+  });
+}
+
 // The search box hides the cards, and then the headings, that do not match every word typed.
 function filterCards() {
   const typed = $("search").value.trim();
   const words = typed.toLowerCase().split(/\s+/).filter(Boolean);
+  // names first: descriptions are only searched when no part's name, number or kind matches
+  const cards = [...document.querySelectorAll(".card[data-part]")];
+  const byName = cards.some((card) => matchesSearch(scene.parts.get(card.dataset.part), words, false));
   let shown = 0;
-  for (const card of document.querySelectorAll(".card[data-part]")) {
-    const part = scene.parts.get(card.dataset.part);
-    const text = `${part.label} ${part.name} ${part.category} ${part.note}`.toLowerCase();
-    card.hidden = !words.every((w) => text.includes(w));
+  for (const card of cards) {
+    card.hidden = !matchesSearch(scene.parts.get(card.dataset.part), words, !byName);
     if (!card.hidden) shown += 1;
   }
   for (const cards of document.querySelectorAll(".cards")) {
@@ -1244,6 +1473,7 @@ function showPopover(part, card) {
     pop.innerHTML = `<b>${escapeHtml(part.label)}</b><p>${escapeHtml(part.note)}</p>
       <p>${size.join(" × ")} mm · about ${gramsText(grams(part.print.volume_mm3))} of PLA · ${escapeHtml(part.print.layer ?? "0.2")} mm layers</p>
       <p>Drag it into the scene, or click to stand one on the floor.</p>`;
+    if (!part.page && part.category !== "Custom") pop.querySelector("b").insertAdjacentHTML("afterend", "<p><i>Generated:</i> not in the official range.</p>");
     pop.hidden = false;
     const rect = card.getBoundingClientRect();
     const side = $("palette").getBoundingClientRect();
@@ -1257,9 +1487,21 @@ function hidePopover() {
 }
 
 // ---------------------------------------------------------------- parts made to order
+let generator = { ok: false, why: "Making a part needs the builder's own launcher (serve.py) running on your computer. A copy on a website, like this one, can only use the parts in the list." };
+
 function showCustomFields() {
   const kind = $("custom-kind").value;
   for (const row of document.querySelectorAll("#custombox [data-for]")) row.hidden = !row.dataset.for.split(" ").includes(kind);
+}
+
+function openCustom() {
+  $("custom-status").textContent = "";
+  $("custom-on").hidden = !generator.ok;
+  $("custom-off").hidden = generator.ok;
+  $("custom-make").hidden = !generator.ok;
+  $("custom-why").textContent = generator.why;
+  showCustomFields();
+  $("custombox").showModal();
 }
 
 async function makeCustom() {
@@ -1268,6 +1510,7 @@ async function makeCustom() {
   for (const row of document.querySelectorAll("#custombox [data-for]")) {
     if (row.hidden) continue;
     const input = row.querySelector("input, select");
+    if (!input) continue;
     query.set(input.name, input.type === "checkbox" ? (input.checked ? "1" : "") : input.value);
   }
   const status = $("custom-status");
@@ -1276,7 +1519,7 @@ async function makeCustom() {
   $("custom-make").disabled = true;
   try {
     const response = await fetch(`api/generate?${query}`);
-    const entry = await response.json();
+    const entry = await response.json().catch(() => ({ error: "The launcher gave no answer. Is serve.py still running?" }));
     if (!response.ok) throw new Error(entry.error);
     if (!scene.parts.has(entry.name)) {
       await ensureMeshes(entry);
@@ -1327,6 +1570,7 @@ function openBuild(data, said = "") {
   }
   if (JSON.parse(before).items.length) { undoStack.push(before); redoStack.length = 0; }
   selected = null;
+  notes = [];
   refresh();
   fitView("corner", false);
   if (said) hint(said, false, 5000);
@@ -1346,7 +1590,10 @@ async function openExample(example) {
     const response = await fetch(`examples/${example.file}`);
     if (!response.ok) throw new Error(response.status);
     const had = scene.items.length;
-    openBuild(await response.json(), had ? `${example.title}. Undo brings back the build you had.` : `${example.title}. ${example.about ?? ""}`);
+    if (!openBuild(await response.json(), had ? `${example.title}. Undo brings back the build you had.` : `${example.title}. ${example.about ?? ""}`)) return;
+    notes = example.notes ?? [];
+    refresh();
+    if (narrow() && notes.length) document.body.classList.add("side-open");
   } catch { hint("That example could not be fetched", true, 4000); }
 }
 
@@ -1394,9 +1641,15 @@ function savePicture() {
   const was = [selected, hovered, marked];
   selected = null; hovered = null; marked = new Set();
   syncViews();
+  const ratio = Math.max(2, Math.ceil(1920 / canvas.clientWidth));
+  renderer.setPixelRatio(ratio);
+  renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+  grid.visible = false;
   renderer.render(world, camera);
   canvas.toBlob((blob) => {
+    grid.visible = true;
     [selected, hovered, marked] = was;
+    resize();
     syncViews();
     if (!blob) return hint("The picture could not be made", true, 3000);
     download(`${fileStem()}.png`, blob, "image/png");
@@ -1435,22 +1688,38 @@ async function printFiles({ preview = true } = {}) {
     lines.push(`  ${String(row.quantity).padStart(3)} x  ${row.label}\n         ${name}\n         ${size} mm as printed, ${part.print.layer ?? "0.2"} mm layers${part.page ? `\n         ${part.page}` : ""}`);
   }
   const size = scene.extent().map((v) => v.toFixed(1)).join(" x ");
+  const pieces = scene.pieces().length;
+  const used = (test) => rows.some((row) => test(row.part));
+  const kindOf = (part) => part.name.match(/^MADOS-20([A-Z])/)?.[1] ?? { twist_block: "A", hinge: "H", wrap_cover: "W", cover: "C" }[part.kind] ?? "";
+  const together = [
+    used((p) => kindOf(p) === "A") && "  - Twist blocks: push the four plugs on the end into four sockets, then turn the block until it locks.\n    A block with plugs on both ends locks its second end by turning the other way.",
+    used((p) => p.name === "MADOS-20GE") && "  - Grub joiners: screw one half way into the opening in the middle of a block's face with a 5 mm\n    Allen key, then screw the second block onto the half that sticks out.",
+    used((p) => p.kind === "joiner" && /^MADOS-20F[ABKLMTU]/.test(p.name)) && "  - Bar joiners: push the bar into the diamond-shaped opening in the middle of a block's face, corner up,\n    until it clicks; the next block pushes on over the half that sticks out.",
+    used((p) => ["C", "W", "I", "J", "K", "E", "D"].includes(kindOf(p))) && "  - Covers, braces, plates and mini blocks: line the plugs up with the sockets and press until they click.",
+    used((p) => p.joints.length && p.kind !== "hinge") && "  - Wrap covers print flat: fold them along their creases round the block and press each side on.",
+    used((p) => p.kind === "hinge") && "  - Hinges print in place as one piece. Work the joint loose gently before fitting it.",
+    scene.partlyJoined().length && "  - Some parts in this build have only some of their plugs in a socket. They hold, but weakly.",
+  ].filter(Boolean);
   const readme = [
     scene.title || "MADOS kit build", `made ${stamp()} with the MADOS kit builder`, "",
-    `${plural(scene.items.length, "part")} in ${plural(scene.pieces().length, "separate piece")}, about ${size} mm overall, about ${gramsText(weight)} of PLA.`,
-    scene.scale !== 1 ? `Kit scale ${scene.scale} x: every part, joints included, is ${scene.scale} times the standard size. These parts fit each other but not standard-size MADOS parts.` : "Standard MADOS size: these parts fit the author's own parts.",
+    `${plural(scene.items.length, "part")}${pieces > 1 ? ` in ${pieces} separate pieces` : ""}, about ${size} mm overall, about ${gramsText(weight)} of PLA.`,
+    scene.scale !== 1 ? `Kit scale ${scene.scale} x: every part, joints included, is ${scene.scale} times the size its name says. These parts fit each other but not standard-size MADOS parts.` : "Standard MADOS size: these parts fit the author's own parts.",
     "", "Print each file the number of times its name starts with:", "", ...lines, "",
     "Printing",
-    "  - The author's advice for every part: Classic perimeter generator, and one wall on top and bottom layers.",
+    "  - The author's advice for every part, in his words: \"use Classic perimeter generator and one",
+    "    wall/perimeter on top and bottom layers\". In OrcaSlicer these are the Classic wall generator and the",
+    "    \"Only one wall\" settings for top surfaces and for the first layer; other slicers name them much the same.",
     fine.length
       ? "  - The files in print-fine-layers/ print best at 0.1 or 0.12 mm layers. Slice them as their own plate.\n    The files in print/ are meant for 0.2 mm layers."
       : "  - Every part here is meant for 0.2 mm layers.",
     "  - No supports are needed. Print each part in the position its file has it in.",
-    "  - Wrap covers print flat and fold along their creases. Hinges print in place as one piece.",
-    "  - The plugs and sockets are the author's own shapes, copied from his published files.",
-    "    Parts generated at other lengths were checked against his files of the same kind,",
-    "    but have not all been test-printed: print one joint pair first if the fit matters.",
+    "  - If a joint comes out too tight or too loose on your printer: the author publishes his parts that have",
+    "    plugs in ten tightnesses, 0 to 9 (see the part's page, linked above). The files here are the ones he recommends.",
+    ...(used((p) => !p.page) ? ["  - Parts called \"generated\" are sizes the official range does not have, made by the builder from the",
+      "    official plug and socket shapes. A generated block and twist block have been test-printed against",
+      "    official parts; the others have not, so print one joint first if the fit matters."] : []),
     "",
+    ...(together.length ? ["Putting it together", ...together, preview ? "  - assembly_preview.stl and the builder itself show where each part goes." : "  - The builder itself shows where each part goes: open build.json in it.", ""] : []),
     "Other files",
     "  - build.json opens this build again in the kit builder (Build > Open a saved build).",
     ...(preview ? ["  - assembly_preview.stl shows the whole build put together. It is for looking at, not printing."] : []),
@@ -1562,7 +1831,9 @@ $("zoom-in").addEventListener("click", () => zoom(0.75));
 $("zoom-out").addEventListener("click", () => zoom(1 / 0.75));
 for (const button of document.querySelectorAll("#viewtools [data-view]")) button.addEventListener("click", () => fitView(button.dataset.view));
 $("help").addEventListener("click", () => $("helpbox").showModal());
-$("custom").addEventListener("click", () => { $("custom-status").textContent = ""; showCustomFields(); $("custombox").showModal(); });
+$("helpbox").addEventListener("toggle", () => { $("help-close").textContent = scene?.items.length ? "Back to the build" : "Start building"; });
+$("custom").addEventListener("click", openCustom);
+$("custom-menu").addEventListener("click", openCustom);
 $("custom-kind").addEventListener("change", showCustomFields);
 $("custom-make").addEventListener("click", makeCustom);
 $("custom-cancel").addEventListener("click", () => $("custombox").close());
@@ -1617,14 +1888,17 @@ async function start() {
   applyTheme();
   catalog = await (await fetch("data/catalog.json")).json();
   try {
-    const custom = await fetch("data/custom/index.json");
-    if (custom.ok) catalog.parts.push(...(await custom.json()).parts);
+    // parts made to order live beside the launcher that made them; a plain web host has none
+    const made = await fetch("api/custom");
+    if (made.ok) catalog.parts.push(...(await made.json()).parts);
   } catch { /* no made-to-order parts here */ }
   scene = new Scene(catalog);
   for (const part of catalog.parts) addCard(part);
   drawRecent();
   resize();
-  fetch("api/ping").then((r) => r.json()).then((info) => { $("custom").hidden = !info.generate; }).catch(() => {});
+  fetch("api/ping").then((r) => (r.ok ? r.json() : null)).then((info) => {
+    if (info) generator = { ok: Boolean(info.generate), why: info.why_not || generator.why };
+  }).catch(() => {});
   fetch("examples/index.json").then((r) => (r.ok ? r.json() : [])).then((list) => { examples = list; drawExamples(); }).catch(() => {});
   try {
     const saved = store.get(STORE);

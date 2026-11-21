@@ -24,7 +24,10 @@
     <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><path d="M16 3 28 9.5v13L16 29 4 22.5v-13z" fill="#1f7a5c"/><path d="M16 3 28 9.5 16 16 4 9.5z" fill="#58b996"/><path d="M16 16v13L4 22.5v-13z" fill="#2a9370"/></svg>
     <h1>MADOS kit builder</h1>
   </div>
-  <input id="title" type="text" maxlength="80" placeholder="Untitled build" aria-label="Name of this build" title="Name this build. The name goes on the files you save and download." autocomplete="off" spellcheck="false">
+  <label id="title-box" title="Name this build. The name goes on the files you save and download.">
+    <input id="title" type="text" maxlength="80" placeholder="Name this build" aria-label="Name of this build" autocomplete="off" spellcheck="false">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.5 2.5l2 2L6 12l-2.7.7L4 10z"/></svg>
+  </label>
   <div class="tools">
     <button id="undo" class="icon" title="Undo (Ctrl+Z)" aria-label="Undo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7 4 12l5 5M4 12h10a6 6 0 0 1 0 12h-2" transform="translate(0 -3)"/></svg></button>
     <button id="redo" class="icon" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 7 5 5-5 5m5-5H10a6 6 0 0 0 0 12h2" transform="translate(0 -3)"/></svg></button>
@@ -40,10 +43,10 @@
         <button role="menuitem" id="share"><span>Copy a link to this build</span></button>
         <button role="menuitem" id="picture"><span>Save a picture of the view</span></button>
         <hr>
+        <button role="menuitem" id="custom-menu"><span>Make a part in another size&hellip;</span></button>
         <button role="menuitem" id="theme"><span id="theme-label">Dark colours</span></button>
       </div>
     </div>
-    <button id="custom" hidden title="Make a block, cover or hinge at a size the list does not have">Custom part&hellip;</button>
     <button id="export" class="primary" title="See what to print, and download the files with a parts list"><span class="long">Download for printing</span><span class="short">Print list</span></button>
     <button id="help" class="icon round" title="How to use this (?)" aria-label="Help">?</button>
   </div>
@@ -51,25 +54,31 @@
 <main>
   <aside id="palette" aria-label="Parts">
     <div id="palette-head">
-      <input id="search" type="search" placeholder="Find a part: hinge, 20KG, 40mm&hellip;" aria-label="Find a part" autocomplete="off">
+      <input id="search" type="search" placeholder="Find a part: hinge, 20KG, 40mm" aria-label="Find a part by name, number or size" autocomplete="off">
       <div id="chips" role="navigation" aria-label="Kinds of part"></div>
     </div>
     <div id="cards">
       <p id="noresults" hidden>No part matches <b></b>. <button id="clear-search" class="link">Show all parts</button></p>
+      <div id="list-foot">
+        <p>Parts marked <i>generated</i> are sizes the official range does not have, made by this builder from the official joint shapes.</p>
+        <button id="custom">Make a part in another size&hellip;</button>
+      </div>
     </div>
   </aside>
   <section id="stage">
     <canvas id="view" aria-label="The build, in 3D"></canvas>
     <div id="empty" hidden>
       <h2>Start building</h2>
-      <p><b>Drag a part</b> from the list into this space, or click a part to stand it on the floor. Drag the next part onto it and <b>let go to snap it on</b>.</p>
+      <p><b>Drag a part</b> from the list into this space, or click or tap a part to stand it on the floor. Drag the next part onto it and <b>let go to snap it on</b>.</p>
       <div id="empty-examples"></div>
     </div>
-    <div id="hint" role="status" aria-live="polite"></div>
-    <div id="dragtools" hidden>
-      <button id="drag-spin" title="Turn the part you are holding (R, or the mouse wheel)"><kbd>R</kbd> Spin</button>
-      <button id="drag-tip" title="Tip the part you are holding over (F)"><kbd>F</kbd> Tip over</button>
-      <button id="drag-cancel" title="Put it back (Esc)"><kbd>Esc</kbd> Cancel</button>
+    <div id="cues">
+      <div id="dragtools" hidden>
+        <button id="drag-spin" title="Turn the part you are holding (R, or the mouse wheel)"><kbd>R</kbd> Spin</button>
+        <button id="drag-tip" title="Tip the part you are holding over (F)"><kbd>F</kbd> Tip over</button>
+        <button id="drag-cancel" title="Put it back (Esc)"><kbd>Esc</kbd> Cancel</button>
+      </div>
+      <div id="hint" role="status" aria-live="polite"></div>
     </div>
     <div id="viewtools">
       <button id="fit" title="Bring the whole build into view (Home)">Fit</button>
@@ -98,56 +107,70 @@
 <dialog id="helpbox">
   <h2>How to build</h2>
   <ol class="steps">
-    <li><b>Take a part.</b> Drag it out of the list, or click it to stand it on the floor. The box above the list finds a part by name or number.</li>
-    <li><b>Hold it over another part.</b> A green outline shows where it will go. If it cannot go there, the builder says why.</li>
+    <li><b>Take a part.</b> Drag it out of the list, or click it to stand it on the floor. The box above the list finds a part by name, number or size.</li>
+    <li><b>Hold it over another part.</b> A green shape shows where it will go, and green rings mark plugs it can join. If it cannot go there, the builder says why.</li>
     <li><b>Let go, and it snaps in.</b> Carry on until it is built, then press <b>Download for printing</b> to see how many of each part to print and to get the files.</li>
   </ol>
   <table class="keys">
     <tr><th colspan="2">While holding a part</th></tr>
-    <tr><td><kbd>R</kbd> or the mouse wheel</td><td>spin it</td></tr>
-    <tr><td><kbd>F</kbd></td><td>tip it over</td></tr>
+    <tr><td><kbd>R</kbd> or the mouse wheel</td><td>spin it to the next way it fits</td></tr>
+    <tr><td><kbd>F</kbd></td><td>tip it over, so another side goes down</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>put it back</td></tr>
     <tr><td>Drag it back onto the list</td><td>remove it from the build</td></tr>
     <tr><th colspan="2">Parts in the build</th></tr>
     <tr><td>Click</td><td>select a part; its details and buttons appear on the right</td></tr>
-    <tr><td>Drag</td><td>move a part. Hold <kbd>Shift</kbd> to move everything joined to it, <kbd>Alt</kbd> to carry off a copy</td></tr>
+    <tr><td>Drag</td><td>move one part. Hold <kbd>Shift</kbd> to bring everything joined to it, <kbd>Alt</kbd> to carry off a copy</td></tr>
     <tr><td><kbd>Delete</kbd></td><td>remove the selected part</td></tr>
-    <tr><td><kbd>Ctrl</kbd>+<kbd>D</kbd></td><td>make a copy of it</td></tr>
-    <tr><td><kbd>R</kbd> <kbd>F</kbd> and the arrow keys</td><td>turn, tip and slide the selected piece</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>D</kbd></td><td>copy it (<kbd>Ctrl</kbd>+<kbd>C</kbd> then <kbd>Ctrl</kbd>+<kbd>V</kbd> also works)</td></tr>
+    <tr><td><kbd>T</kbd></td><td>turn just that part in its joint</td></tr>
+    <tr><td><kbd>R</kbd> <kbd>F</kbd> and the arrow keys</td><td>turn, tip and slide the selected piece. <kbd>Page Up</kbd> and <kbd>Page Down</kbd> lift and lower it</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>undo. <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redoes</td></tr>
     <tr><th colspan="2">Looking around</th></tr>
-    <tr><td>Drag the background</td><td>turn the view. Right-drag slides it, the wheel zooms</td></tr>
+    <tr><td>Drag the background</td><td>turn the view. The wheel or a pinch zooms</td></tr>
+    <tr><td>Right-drag, or <kbd>Shift</kbd>-drag</td><td>slide the view sideways</td></tr>
     <tr><td>Double-click a part</td><td>bring it to the middle of the view</td></tr>
     <tr><td><kbd>Home</kbd></td><td>bring the whole build into view</td></tr>
+    <tr><th colspan="2">Without a mouse</th></tr>
+    <tr><td><kbd>/</kbd></td><td>go to the search box; <kbd>Tab</kbd> then reaches the parts</td></tr>
+    <tr><td><kbd>Enter</kbd> on a part in the list</td><td>stand one on the floor, or join one onto the selected part. <kbd>N</kbd> moves it to the next place it fits</td></tr>
+    <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>select the previous or next part in the build</td></tr>
   </table>
-  <p class="small"><b>Why will two blocks not join?</b> Plain blocks only have sockets, so two of them need something between: a twist block, a mini block half, or a joiner pushed or screwed into the opening in the middle of a face. A part only goes where its plugs meet sockets the right way round, and never through another part.</p>
-  <p class="small">Your build is kept in this browser as you go. Parts follow the open MADOS system by <a href="https://www.mados3d.com/" target="_blank" rel="noopener">MADOS 3D</a> (CC0). This builder is an unofficial community project.</p>
-  <form method="dialog" class="row end"><button class="primary">Start building</button></form>
+  <p class="small"><b>Why will two blocks not join?</b> Plain blocks only have sockets, so two of them need something between: a twist block, a Mini Block Half C, or a joiner pushed or screwed into the opening in the middle of a face (the grub joiner is the simplest). A part only goes where its plugs meet sockets the right way round, and never through another part.</p>
+  <p class="small"><b>What does "generated" mean?</b> The official range has fixed sizes. Parts marked generated are other sizes, made by this builder from the official plug and socket shapes. A generated block and twist block have been test-printed against official parts; the others have not.</p>
+  <p class="small">Your build is kept in this browser as you go. Rows in the "To print" list can be clicked to find those parts. Parts follow the open MADOS system by <a href="https://www.mados3d.com/" target="_blank" rel="noopener">MADOS 3D</a> (CC0). This builder is an unofficial community project.</p>
+  <form method="dialog" class="row end"><button class="primary" id="help-close" autofocus>Close</button></form>
 </dialog>
 
 <dialog id="custombox">
-  <h2>Make a part to order</h2>
-  <p class="small">The part is built from the same plug and socket shapes as the official parts, at the size you choose.</p>
-  <div class="form">
-    <label>Kind
-      <select id="custom-kind">
-        <option value="block">Block</option>
-        <option value="twist">Twist block</option>
-        <option value="cover">Cover</option>
-        <option value="wrap">Wrap cover</option>
-        <option value="hinge">Hinge</option>
-      </select>
-    </label>
-    <label data-for="block twist cover wrap hinge">Length, mm <input name="length" type="number" min="20" max="300" step="20" value="120"></label>
-    <label data-for="block">Blocks across <input name="across_a" type="number" min="1" max="3" value="1"></label>
-    <label data-for="block">Blocks high <input name="across_b" type="number" min="1" max="3" value="1"></label>
-    <label data-for="cover">Width, mm <input name="width" type="number" min="20" max="100" step="20" value="20"></label>
-    <label data-for="wrap">Sides <input name="panels" type="number" min="2" max="4" value="3"></label>
-    <label data-for="twist cover wrap hinge" title="0 is the loosest fit, 9 the tightest">Joint strength, 0 to 9 <input name="strength" type="number" min="0" max="9" value="3"></label>
-    <label data-for="twist">Plugs on both ends <input name="double" type="checkbox"></label>
+  <h2>Make a part in another size</h2>
+  <div id="custom-off" hidden>
+    <p>This copy of the builder can only use the parts in the list.</p>
+    <p class="small" id="custom-why"></p>
   </div>
-  <p id="custom-status" class="small"></p>
-  <div class="row end"><button id="custom-cancel">Cancel</button><button id="custom-make" class="primary">Make it</button></div>
+  <div id="custom-on">
+    <p class="small">The part is built from the same plug and socket shapes as the official parts, at the size you choose. It then appears in the list like any other.</p>
+    <div class="form">
+      <label>Kind
+        <select id="custom-kind">
+          <option value="block">Block</option>
+          <option value="twist">Twist block</option>
+          <option value="cover">Cover</option>
+          <option value="wrap">Wrap cover</option>
+          <option value="hinge">Hinge</option>
+        </select>
+      </label>
+      <label data-for="block twist cover wrap hinge">Length, mm <input name="length" type="number" min="20" max="300" step="20" value="120"></label>
+      <label data-for="block">Blocks across <input name="across_a" type="number" min="1" max="3" value="1"></label>
+      <label data-for="block">Blocks high <input name="across_b" type="number" min="1" max="3" value="1"></label>
+      <label data-for="cover">Width, mm <input name="width" type="number" min="20" max="100" step="20" value="20"></label>
+      <label data-for="wrap">Sides <input name="panels" type="number" min="2" max="4" value="3"></label>
+      <label data-for="twist cover wrap hinge">Plug tightness, 0 to 9 <input name="strength" type="number" min="0" max="9" value="3"></label>
+      <p class="small" data-for="twist cover wrap hinge">How tightly the plugs grip: 0 is the loosest, 9 the tightest. The author's advice is to print one first, then go lower if the joint is too hard to push in and higher if it is too weak.</p>
+      <label data-for="twist">Plugs on both ends <input name="double" type="checkbox"></label>
+    </div>
+    <p id="custom-status" class="small"></p>
+  </div>
+  <div class="row end"><button id="custom-cancel">Close</button><button id="custom-make" class="primary">Make it</button></div>
 </dialog>
 
 <dialog id="exportbox">

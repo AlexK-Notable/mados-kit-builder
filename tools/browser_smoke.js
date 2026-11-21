@@ -154,6 +154,77 @@ async page => {
   await page.waitForFunction(() => window.madosApp, null, { timeout: 90000 });
   check("the build is still there after the page is reloaded", (await app(() => JSON.stringify(window.madosApp.scene.toJSON()))) === saved);
 
+  // ---- closing a frame: a bar held near one of two joiners lies across both
+  const frame = await app(async () => (await (await fetch("examples/frame.json")).json()).items);
+  await reset(frame.slice(0, 5));
+  await page.fill("#search", "80mm plain");
+  const grubTip = await app(() => { const g = window.madosApp.scene.items[3]; return [g.pose.t[0], g.pose.t[1], g.pose.t[2] + 9]; });
+  let a = await card("MADOS-20BD"), b = await at(grubTip);
+  await page.mouse.move(a[0], a[1]); await page.mouse.down();
+  await page.mouse.move(a[0] + 20, a[1] + 8, { steps: 3 }); await page.mouse.move(b[0], b[1], { steps: 10 });
+  await page.waitForTimeout(150);
+  const lying = await app(() => window.madosApp.dragging?.target?.engaged);
+  await page.keyboard.press("f"); await page.waitForTimeout(150);
+  const onEnd = await app(() => window.madosApp.dragging?.target?.engaged);
+  await page.keyboard.press("Escape"); await page.mouse.up();
+  check("a bar held over one of two joiners takes both, and F stands it on one", lying === 2 && onEnd === 1, `${lying} then ${onEnd}`);
+  // pointing through the gap between the posts still finds the joiners, not the floor far behind
+  d = await drag(await card("MADOS-20BD"), await at([0, 0, 55]));
+  await page.fill("#search", "");
+  s = await state();
+  check("a bar aimed through the gap in a frame closes it", d.target?.engaged === 2 && s.pieces === 1 && s.items.length === 6, `${d.hint} / ${s.items.at(-1)}`);
+
+  // a part taken out of the middle leaves the rest in the air: said, and put right in one press
+  await app(() => { const sc = window.madosApp.scene; const post = sc.items[1]; post.pose = { r: post.pose.r, t: [80, 80, post.pose.t[2]] }; window.madosApp.refresh(); });
+  const afloat = await app(() => window.madosApp.scene.floating().length);
+  const warned = /in the air/.test(await app(() => document.getElementById("summary").textContent));
+  await page.click('#summary button[data-do="settle"]');
+  await page.waitForTimeout(200);
+  check("parts left hanging in the air are pointed out and can be set down", afloat >= 1 && warned && (await app(() => window.madosApp.scene.floating().length)) === 0, String(afloat));
+
+  // one joined part turned in its joint; the rest stay put
+  await reset([{ name: "MADOS-20BA", pose: { r: I, t: [0, 0, 10] }, angles: [] }]);
+  await page.fill("#search", "20AA");
+  await drag(await card("MADOS-20AA"), await at([0, 0, 20]));
+  await page.fill("#search", "");
+  const r0t = await app(() => JSON.stringify(window.madosApp.scene.items[1].pose.r));
+  await page.click('#selection button[data-do="turn-part"]');
+  s = await state();
+  check("Turn in place turns one joined part and keeps it joined", r0t !== (await app(() => JSON.stringify(window.madosApp.scene.items[1].pose.r))) && s.joints === 4 && s.items[0] === "MADOS-20BA@0,0,10");
+
+  // without a mouse: Enter joins a part onto the selected one, N moves it on, [ and ] step through the build
+  await reset([{ name: "MADOS-20BA", pose: { r: I, t: [0, 0, 10] }, angles: [] }]);
+  await page.locator("#fit").focus();
+  await page.keyboard.press("]");
+  const picked = await app(() => window.madosApp.selected);
+  await page.locator('.card[data-part="MADOS-20AA"]').focus();
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(300);
+  s = await state();
+  const first = s.items[1];
+  await page.locator("#fit").focus();
+  await page.keyboard.press("n");
+  await page.waitForTimeout(150);
+  const second = (await state()).items[1];
+  check("with keys alone a part is joined onto the selected one and moved to another place", picked === 1 && s.joints === 4 && s.pieces === 1 && first !== second && (await state()).joints === 4, `${first} -> ${second}`);
+
+  // search finds parts by the words people use, and by name before description
+  const found = async (q) => { await page.fill("#search", q); return app(() => [...document.querySelectorAll(".card[data-part]:not([hidden])")].map((c) => c.dataset.part.replace("MADOS-", ""))); };
+  const lid = await found("lid"), conn = await found("connector"), size = await found("40mm"), cross = await found("20x60"), none = await found("zzzz");
+  const empty = await app(() => !document.getElementById("noresults").hidden);
+  await page.fill("#search", "");
+  check("search understands everyday words and sizes", lid.every((n) => /^20H|hinge/.test(n)) && lid.length >= 7 && conn.includes("20GE") && !conn.includes("20BA")
+    && size.includes("20BB") && !size.some((n) => /140|240/.test(n)) && cross.join() === "cover_20x60_s4" && none.length === 0 && empty, `${lid.length} ${conn.length} ${size.length} ${cross}`);
+
+  // an example says what to look at, and a joiner chosen from its notes shows through the blocks
+  await reset();
+  await page.click('#empty-examples button');
+  await page.waitForFunction(() => window.madosApp.scene.items.length >= 5 && window.madosApp.drawn().every((row) => row.ok));
+  const noteCount = await app(() => document.querySelectorAll(".notes li").length);
+  await page.click(".notes li:nth-child(3) button");
+  const chosen = await app(() => { const a2 = window.madosApp; return a2.scene.partOf(a2.scene.get(a2.selected)).name; });
+  check("an example lists what to look at, and a note selects its part", noteCount === 3 && chosen === "MADOS-20GE", `${noteCount} ${chosen}`);
+
   // ---- what a newcomer tries without reading anything
   await reset();
   await page.click('.card[data-part="MADOS-20BA"]');
@@ -250,9 +321,9 @@ async page => {
     await reset(build.items);
     const e = await state();
     const loose = await app(() => window.madosApp.scene.partlyJoined().length);
-    if (e.pieces !== 1 || loose) good = false;
+    if (e.pieces !== 1 || loose || (await app(() => window.madosApp.scene.floating().length))) good = false;
   }
-  check("every example opens as one joined piece with nothing partly joined", good, examples.join(" "));
+  check("every example opens as one joined piece with nothing partly joined or in the air", good && examples.length === 4, examples.join(" "));
 
   await page.click("#menu-button");
   await page.click("#theme");

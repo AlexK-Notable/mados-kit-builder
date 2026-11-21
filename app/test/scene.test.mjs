@@ -272,3 +272,26 @@ test("a build's name is saved and opened with it", () => {
   again.load({ format: "mados-kit build", items: [] });
   assert.equal(again.title, "");
 });
+
+test("a bar held near one of two joiners lies across both, and stands on one only when tipped upright", () => {
+  const { scene, onFloor, one, boxOf } = fresh();
+  onFloor("MADOS-20BD");                                             // 80 mm block lying along y
+  const drop = (name, hit, extra = {}) => {
+    const got = scene.choosePlacement(one(name), scene.context(), { hit, normal: [0, 0, 1], viewDir: VIEW, prefR: R0, ...extra });
+    assert.ok(got, `${name} at ${hit}`);
+    return { ...got, id: scene.place(got.payload, got.pose)[0] };
+  };
+  const posts = [drop("twist_60_s3", [0, -30, 20]), drop("twist_60_s3", [0, 30, 20])];
+  const grubs = posts.map((post) => { const b = boxOf(post.id); return drop("MADOS-20GE", [0, (b.min[1] + b.max[1]) / 2, b.max[2]]); });
+  assert.equal(scene.pieces().length, 1);
+  const tip = boxOf(grubs[0].id);
+  const at = [(tip.min[0] + tip.max[0]) / 2, (tip.min[1] + tip.max[1]) / 2, tip.max[2]];
+  const across = scene.choosePlacement(one("MADOS-20BD"), scene.context(), { hit: at, normal: [0, 0, 1], viewDir: VIEW, prefR: R0, item: grubs[0].id });
+  assert.equal(across.engaged, 2, "it takes both joiners");
+  const upright = scene.choosePlacement(one("MADOS-20BD"), scene.context(), { hit: at, normal: [0, 0, 1], viewDir: VIEW, prefR: kit.rotation([1, 0, 0], 90), item: grubs[0].id });
+  assert.equal(upright.engaged, 1, "tipped on end, it stands on the one it is over");
+  const id = scene.place(across.payload, across.pose)[0];
+  const box = boxOf(id);
+  assert.ok(box.max[2] - box.min[2] < 21 && box.max[1] - box.min[1] > 79, "lying flat across the top");
+  assert.equal(scene.pieces().length, 1);
+});

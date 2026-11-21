@@ -22,17 +22,28 @@ page, so any web host can serve it as it is.
 over another part: a green outline shows where it will go, and if it cannot go there the
 builder says why. Let go and it snaps in.
 
-![A cover held over a block, with a green outline where it will snap](docs/snapping.png)
+![A bar held over two joiners, with a green outline where it will snap and a note saying it makes two joints](docs/snapping.png)
 
 - While holding a part, `R` or the mouse wheel spins it to the next way it fits, and `F`
   tips it over. `Esc` puts it back.
+- A part held near several joiners takes the place that joins the most of them, so a bar
+  laid across two posts closes the frame. Pointing through a gap in the build finds the
+  parts around the gap, not the floor behind it.
 - Green rings mark the free plugs a held part can join. Plain blocks only have sockets,
   so two of them need something between: the builder says so, and points at the parts
   that do it.
 - Drag a placed part to move it. `Shift` brings everything joined to it; `Alt` carries
   off a copy. Dragging a part back onto the list removes it.
 - Click a part to see what it is, how big it is and what it weighs, and to copy, turn,
-  tip, lift or remove it. Hinges and wrap covers show buttons to swing or fold them.
+  tip, lift or remove it. "Turn in place" (`T`) turns one joined part in its joint.
+  Hinges and wrap covers show buttons to swing or fold them. A joiner that is selected
+  shows through the blocks around it.
+- Shadows on the floor show how high a part is. If taking a part out leaves others in
+  the air, the builder says so and sets them down in one press.
+- Without a mouse: `[` and `]` step through the placed parts, `Enter` on a part in the
+  list joins one onto the selected part, and `N` moves it to the next place it fits.
+- The search box knows sizes ("40mm", "20x60"), part numbers ("20KG") and everyday words
+  ("lid", "connector", "bracket").
 - Undo and redo cover everything. The build is kept in the browser as you go.
 
 **Printing.** "Download for printing" shows how many of each part to print, about how
@@ -43,8 +54,10 @@ so it can be opened again.
 ![The list of what to print, with sizes and layer heights](docs/print-list.png)
 
 **Keeping and sharing.** The Build menu saves a build to a file and opens it again,
-copies a link that carries the whole build, saves a picture of the view, and opens three
-small example builds. A saved build can also be dropped onto the page.
+copies a link that carries the whole build, saves a picture of the view, and opens four
+small example builds, each with notes on what to look at. A build can be given a name,
+which goes into its file, its link and its parts list. A saved build can also be dropped
+onto the page.
 
 **Other screens.** There are dark colours (they follow the system, or Build > Dark
 colours), and on a phone the list moves under the view: pull a part up out of it, or rest
@@ -62,8 +75,10 @@ the plate joiners), and the moving joints of hinges and wrap covers. The seven p
 
 ## Parts made to order
 
-With the Python packages installed, the "Custom part" button also makes blocks, twist
-blocks, covers, wrap covers and hinges at lengths the list does not have:
+"Make a part in another size", under the list and in the Build menu, makes blocks, twist
+blocks, covers, wrap covers and hinges at lengths the list does not have. It needs the
+Python packages and the author's files; until both are there, the builder says which is
+missing:
 
     python3 -m venv .venv
     .venv/bin/pip install -r requirements.txt

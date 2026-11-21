@@ -7,9 +7,17 @@ import * as kit from "./kit.js";
 const GROUND_SLACK = 0.01;   // mm a part may dip below the ground before a placement is refused
 const FALLBACK_REACH = 15;    // mm: a grub joiner's joint is 10 mm below the tip the cursor lands on
 const TARGET_REACH = 25;      // mm from the cursor within which joints are tried as the anchor
+const RAY_REACH = 22;         // mm from the cursor's ray within which a joint is tried when the ray touches no part
 const OWN_REACH = 45;         // mm: the same, for joints of the very part under the cursor (a 40 mm joiner's far end)
 const ENGAGE_PULL = 2.5;      // mm nearer the cursor a placement counts for each joint it engages, so a part settles where
                               // all its plugs are in rather than hanging half off, unless it is plainly held off to one side
+const WAITING_PULL = 40;      // mm, the same, for each further set of plugs already standing on the build that the placement
+                              // takes up.  Plugs put on a build are there to hold something: a bar held near one of two
+                              // joiners is wanted across both, and a lid over four posts is wanted on all four.
+const SPIN_COST = 0.05;       // mm per degree a placement is spun, in the plane of the joint, from the way the part is held:
+                              // little, so a part turns itself to fit
+const TIP_COST = 0.25;        // mm per degree it is tipped over from the way it is held: more, so that which side goes
+                              // down is the holder's choice (F tips it) and a long block stays lying if it was held lying
 
 export class Scene {
   constructor(catalog) {
@@ -165,8 +173,12 @@ export class Scene {
           .filter((p) => kit.dot(p.normal, n) < -0.9 && Math.abs(kit.dot(p.pos, n) - plane) < 0.01);
         if (!mating.length) continue;
         const centre = mating.reduce((s, p) => kit.add(s, p.pos), [0, 0, 0]).map((v) => v / mating.length);
-        const turn = kit.rotationAngle(kit.matMul(c.pose.r, kit.transpose(heldToward(prefR, c.pose.r, n))));
-        let score = kit.norm(kit.sub(centre, onPlane)) + 0.05 * turn - ENGAGE_PULL * c.engaged;
+        const held = heldToward(prefR, c.pose.r, n);
+        const spin = kit.rotationAngle(kit.matMul(c.pose.r, kit.transpose(held.r)));
+        const waiting = waitingPlugs(kit.evaluate(moving, ctx.index, c.pose).engaged);
+        let score = kit.norm(kit.sub(centre, onPlane)) + SPIN_COST * spin + TIP_COST * held.tip
+          - ENGAGE_PULL * c.engaged - WAITING_PULL * Math.max(0, waiting - 1)
+          + (mating.every((p) => p.body === 0) ? 0 : 12);  // a hinge goes on by its fixed leaf, leaving the swinging one free
         if (jointed) score += (vi ? 20 : 0) - 1000 * c.engaged;
         if (!best || score < best.score) best = { pose: c.pose, payload: variant, engaged: c.engaged, normal: n, score };
       }
@@ -182,9 +194,95 @@ export class Scene {
     const plugsHere = near.some(kit.isPlug), socketsHere = near.some((p) => !kit.isPlug(p));
     const myPlugs = mine.some(kit.isPlug), mySockets = mine.some((p) => !kit.isPlug(p));
     if (!near.length) return "There is no free joint to join onto there";
-    if (!myPlugs && !plugsHere) return "Two sockets cannot join: put a part with plugs between them, such as a twist block, a mini block half or a grub joiner";
+    if (!myPlugs && !plugsHere) return "Two sockets cannot join: put a part with plugs between them, such as a twist block, a Mini Block Half C or a grub joiner";
     if (!mySockets && !socketsHere) return "Two plugs cannot join: one side needs sockets";
     return "It does not fit there";
+  }
+
+  // The best placement when the cursor's ray passes through the build without touching a
+  // part: through a gap between parts, or through the open middle of one.  The joints the
+  // ray passes closest to are tried, nearest the viewer first.  -> as choosePlacement, or null.
+  placementAlongRay(payload, ctx, origin, direction, prefR) {
+    const near = ctx.fixed.map((p) => {
+      const along = kit.dot(kit.sub(p.pos, origin), direction);
+      const foot = kit.add(origin, kit.scale(direction, along));
+      return { p, along, off: kit.norm(kit.sub(p.pos, foot)), foot };
+    }).filter((x) => x.along > 0 && x.off < RAY_REACH && kit.dot(x.p.normal, direction) < -0.1)
+      .sort((a, b) => (a.off - b.off) + 0.2 * (a.along - b.along));
+    const tried = new Set();
+    for (const x of near.slice(0, 12)) {
+      const key = `${x.p.item}:${x.p.normal.map((v) => Math.round(v * 10)).join(",")}`;
+      if (tried.has(key)) continue;
+      tried.add(key);
+      const got = this.choosePlacement(payload, ctx, { hit: x.p.pos, normal: x.p.normal, viewDir: direction, prefR, item: x.p.item });
+      if (got) return got;
+    }
+    return null;
+  }
+
+  // Every place a payload can go on one placed part, best first: the placements with the
+  // most joints, upward-facing ones before the rest.  For attaching without a mouse.
+  placementsOn(payload, ctx, item) {
+    const moving = this.payloadPorts(payload);
+    const targets = ctx.fixed.filter((p) => p.item === item);
+    const out = [];
+    for (const c of kit.candidatePoses(moving, ctx.fixed, ctx.index, targets)) {
+      if (!this.fits(payload, c.pose, ctx)) continue;
+      const pair = kit.evaluate(moving, ctx.index, c.pose).engaged.find(([, f]) => f.item === item);
+      if (!pair) continue;
+      out.push({ pose: c.pose, payload, engaged: c.engaged, normal: pair[1].normal });
+    }
+    out.sort((a, b) => (b.engaged - a.engaged) || (b.normal[2] - a.normal[2]) || (a.pose.t[2] - b.pose.t[2]));
+    // the same part turned on the same spot so that it covers the same joints is one place,
+    // not four: turning in place is its own command
+    const seen = new Set();
+    return out.filter((place) => {
+      const where = moving.map((p) => kit.applyPose(place.pose, p.pos).map((v) => Math.round(v * 10)).join(",")).sort().join(";");
+      return seen.has(where) ? false : (seen.add(where), true);
+    });
+  }
+
+  // Turn one joined part a quarter turn about the joint that holds it, leaving everything
+  // else where it is.  -> the new pose, or null when it fits no other way round.
+  turnedInPlace(id) {
+    const item = this.get(id);
+    const held = this.joints().filter((j) => j.a.item === id || j.b.item === id);
+    if (!held.length) return null;
+    const own = (j) => (j.a.item === id ? j.a : j.b);
+    const axis = own(held[0]).normal;
+    const centre = held.reduce((s, j) => kit.add(s, own(j).pos), [0, 0, 0]).map((v) => v / held.length);
+    const payload = this.payloadOf([id]);
+    const ctx = this.context([id]);
+    const ports = this.payloadPorts(payload);
+    for (const angle of [90, 180, 270]) {
+      const turn = { r: kit.rotation(axis, angle), t: [0, 0, 0] };
+      const about = kit.compose({ r: kit.IDENTITY.r, t: centre }, kit.compose(turn, { r: kit.IDENTITY.r, t: kit.scale(centre, -1) }));
+      const pose = clean(kit.compose(about, item.pose));
+      const { engaged, conflicts } = kit.evaluate(ports, ctx.index, pose);
+      if (engaged.length >= held.length && !conflicts.length && this.fits(payload, pose, ctx)) return pose;
+    }
+    return null;
+  }
+
+  // Joined groups that nothing holds up: no part of them rests on the floor.  -> [[ids]]
+  floating() {
+    return this.pieces().filter((ids) => this.payloadBox(this.payloadOf(ids), this.get(ids[0]).pose).min[2] > 0.05);
+  }
+
+  // Lower a joined group until it rests on the floor or on another part.  -> mm it dropped.
+  settle(ids) {
+    const lead = this.get(ids[0]);
+    const payload = this.payloadOf(ids);
+    const ctx = this.context(ids);
+    const height = this.payloadBox(payload, lead.pose).min[2];
+    const at = (drop) => ({ r: lead.pose.r, t: kit.add(lead.pose.t, [0, 0, -drop]) });
+    let drop = 0;
+    for (const next of [...Array(Math.floor(height / 5)).keys()].map((k) => (k + 1) * 5).concat(height)) {
+      if (!this.fits(payload, at(next), ctx)) break;
+      drop = next;
+    }
+    if (drop > 0) this.place(payload, at(drop));
+    return drop;
   }
 
   // The valid placement nearest to a freely held pose (used when the cursor is over the
@@ -371,13 +469,25 @@ export class Scene {
 // Candidates are compared with this, not with prefR itself, so that spinning the held part
 // about n always changes which of them is nearest: without it a part that must flip over
 // to fit, such as a cover, is equally far from every way round.
+// -> {r: the tipped orientation, tip: how many degrees it had to be tipped}
 function heldToward(prefR, r, n) {
   const want = kit.scale(n, -1);
   const now = kit.matVec(prefR, kit.matVec(kit.transpose(r), want));
   const d = Math.min(1, Math.max(-1, kit.dot(now, want)));
-  if (d > 0.9999) return prefR;
+  if (d > 0.9999) return { r: prefR, tip: 0 };
   const axis = d < -0.9999 ? (Math.abs(n[2]) < 0.9 ? kit.cross(n, [0, 0, 1]) : [1, 0, 0]) : kit.cross(now, want);
-  return kit.matMul(kit.rotation(axis, (Math.acos(d) * 180) / Math.PI), prefR);
+  const tip = (Math.acos(d) * 180) / Math.PI;
+  return { r: kit.matMul(kit.rotation(axis, tip), prefR), tip };
+}
+
+// How many separate sets of plugs on the build a placement would take up: plugs on the same
+// side of the same part count once.  [m, f] pairs as kit.evaluate gives them.
+function waitingPlugs(pairs) {
+  const sets = new Set();
+  for (const [, f] of pairs) {
+    if (kit.isPlug(f)) sets.add(`${f.item}:${f.body}:${f.normal.map((v) => Math.round(v * 10)).join(",")}`);
+  }
+  return sets.size;
 }
 
 // Round a pose that is a whole number of quarter turns back to exact integers.
