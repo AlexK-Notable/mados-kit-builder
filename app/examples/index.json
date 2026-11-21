@@ -1,0 +1,17 @@
+[
+ {
+  "file": "first-joints.json",
+  "title": "First joints",
+  "about": "The three everyday joints: a twist block, a snap-on cover and a threaded grub joiner."
+ },
+ {
+  "file": "hinged-lid.json",
+  "title": "Hinged lid",
+  "about": "A hinge between two blocks. Select the hinge and use its Swing buttons."
+ },
+ {
+  "file": "frame-corner.json",
+  "title": "Frame corner",
+  "about": "Three long twist blocks meeting in a corner cube, stiffened by two corner braces."
+ }
+]

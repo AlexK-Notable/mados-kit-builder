@@ -7,3 +7,6 @@ out/
 __pycache__/
 *.pyc
 *.log
+# Left behind by the browser checks
+.playwright-cli/
+mados-build-*.zip

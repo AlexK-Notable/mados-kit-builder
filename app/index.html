@@ -4,64 +4,127 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MADOS kit builder</title>
+<meta name="description" content="Snap MADOS building blocks together on screen, then download the parts list and the files to print.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3 28 9.5v13L16 29 4 22.5v-13z' fill='%231f7a5c'/%3E%3Cpath d='M16 3 28 9.5 16 16 4 9.5z' fill='%2358b996'/%3E%3Cpath d='M16 16v13L4 22.5v-13z' fill='%232a9370'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
+<script>
+  // Set the colours before the page paints, so a dark screen never flashes white.
+  try {
+    const wish = localStorage.getItem("mados-kit-theme");
+    const dark = wish ? wish === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+  } catch { document.documentElement.dataset.theme = "light"; }
+</script>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
 </head>
 <body>
 <header>
-  <h1>MADOS kit builder</h1>
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><path d="M16 3 28 9.5v13L16 29 4 22.5v-13z" fill="#1f7a5c"/><path d="M16 3 28 9.5 16 16 4 9.5z" fill="#58b996"/><path d="M16 16v13L4 22.5v-13z" fill="#2a9370"/></svg>
+    <h1>MADOS kit builder</h1>
+  </div>
+  <input id="title" type="text" maxlength="80" placeholder="Untitled build" aria-label="Name of this build" title="Name this build. The name goes on the files you save and download." autocomplete="off" spellcheck="false">
   <div class="tools">
-    <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
-    <button id="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
-    <span class="gap"></span>
-    <button id="new" title="Start an empty build">New</button>
-    <button id="save" title="Save this build to a file">Save</button>
-    <button id="load" title="Open a saved build">Open</button>
-    <span class="gap"></span>
-    <label title="Every part, joints included, is printed this much bigger. Parts of different scales do not fit each other.">
-      Kit scale
-      <select id="scale">
-        <option value="1">1 &times; (20 mm blocks)</option>
-        <option value="1.5">1.5 &times; (30 mm blocks)</option>
-        <option value="2">2 &times; (40 mm blocks)</option>
-      </select>
-    </label>
+    <button id="undo" class="icon" title="Undo (Ctrl+Z)" aria-label="Undo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7 4 12l5 5M4 12h10a6 6 0 0 1 0 12h-2" transform="translate(0 -3)"/></svg></button>
+    <button id="redo" class="icon" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 7 5 5-5 5m5-5H10a6 6 0 0 0 0 12h2" transform="translate(0 -3)"/></svg></button>
+    <div class="menu">
+      <button id="menu-button" aria-haspopup="true" aria-expanded="false" title="Save, open, share and settings">Build <svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="m2.5 4.5 3.5 3.5 3.5-3.5"/></svg></button>
+      <div id="menu" class="menu-list" role="menu" hidden>
+        <button role="menuitem" id="new"><span>New build</span><kbd>empties the scene</kbd></button>
+        <button role="menuitem" id="load"><span>Open a saved build&hellip;</span><kbd>Ctrl+O</kbd></button>
+        <button role="menuitem" id="save"><span>Save to a file</span><kbd>Ctrl+S</kbd></button>
+        <div class="menu-head" id="examples-head" hidden>Examples</div>
+        <div id="examples"></div>
+        <hr>
+        <button role="menuitem" id="share"><span>Copy a link to this build</span></button>
+        <button role="menuitem" id="picture"><span>Save a picture of the view</span></button>
+        <hr>
+        <button role="menuitem" id="theme"><span id="theme-label">Dark colours</span></button>
+      </div>
+    </div>
     <button id="custom" hidden title="Make a block, cover or hinge at a size the list does not have">Custom part&hellip;</button>
-    <button id="export" class="primary" title="Download the files to print, with a parts list">Download for printing</button>
-    <button id="help" title="How to use this">?</button>
+    <button id="export" class="primary" title="See what to print, and download the files with a parts list">Download for printing</button>
+    <button id="help" class="icon round" title="How to use this (?)" aria-label="Help">?</button>
   </div>
 </header>
 <main>
   <aside id="palette" aria-label="Parts">
-    <input id="search" type="search" placeholder="Find a part: hinge, 20KG, 40mm&hellip;" aria-label="Find a part">
+    <div id="palette-head">
+      <input id="search" type="search" placeholder="Find a part: hinge, 20KG, 40mm&hellip;" aria-label="Find a part" autocomplete="off">
+      <div id="chips" role="navigation" aria-label="Kinds of part"></div>
+    </div>
+    <div id="cards">
+      <p id="noresults" hidden>No part matches <b></b>. <button id="clear-search" class="link">Show all parts</button></p>
+    </div>
   </aside>
   <section id="stage">
-    <canvas id="view"></canvas>
-    <div id="hint"></div>
-    <div id="loading">Loading parts&hellip;</div>
-    <div id="viewtools">
-      <button id="fit" title="Bring the whole build into view">Fit view</button>
+    <canvas id="view" aria-label="The build, in 3D"></canvas>
+    <div id="empty" hidden>
+      <h2>Start building</h2>
+      <p><b>Drag a part</b> from the list into this space, or click a part to stand it on the floor. Drag the next part onto it and <b>let go to snap it on</b>.</p>
+      <div id="empty-examples"></div>
     </div>
+    <div id="hint" role="status" aria-live="polite"></div>
+    <div id="dragtools" hidden>
+      <button id="drag-spin" title="Turn the part you are holding (R, or the mouse wheel)"><kbd>R</kbd> Spin</button>
+      <button id="drag-tip" title="Tip the part you are holding over (F)"><kbd>F</kbd> Tip over</button>
+      <button id="drag-cancel" title="Put it back (Esc)"><kbd>Esc</kbd> Cancel</button>
+    </div>
+    <div id="viewtools">
+      <button id="fit" title="Bring the whole build into view (Home)">Fit</button>
+      <button id="zoom-in" class="icon" title="Zoom in" aria-label="Zoom in">+</button>
+      <button id="zoom-out" class="icon" title="Zoom out" aria-label="Zoom out">&minus;</button>
+      <span class="views">
+        <button data-view="corner" title="Look from a corner">Corner</button>
+        <button data-view="front" title="Look from the front">Front</button>
+        <button data-view="side" title="Look from the side">Side</button>
+        <button data-view="top" title="Look from above">Top</button>
+      </span>
+    </div>
+    <button id="panel-toggle" hidden></button>
+    <div id="meshload" hidden></div>
+    <div id="dropzone" hidden><div>Drop a saved build here to open it</div></div>
+    <div id="loading">Loading parts&hellip;</div>
   </section>
-  <aside id="side">
+  <aside id="side" aria-label="Selected part and parts list">
+    <button id="side-close" class="icon" aria-label="Close this panel" title="Close">&times;</button>
     <div id="selection"></div>
     <div id="summary"></div>
   </aside>
 </main>
+<div id="popover" hidden></div>
+
 <dialog id="helpbox">
   <h2>How to build</h2>
-  <ul>
-    <li><b>Drag a part</b> from the list on the left into the scene (the box above the list finds a part by name or number). Hold it over another part: the green outline shows where it will go. <b>Let go and it snaps in.</b></li>
-    <li>Let go over the empty floor to stand a part there.</li>
-    <li>While dragging, press <kbd>R</kbd> to spin the part and <kbd>F</kbd> to tip it over.</li>
-    <li><b>Drag a placed part</b> to move it. Hold <kbd>Shift</kbd> to move everything joined to it as well.</li>
-    <li><b>Click a part</b> to select it. <kbd>Delete</kbd> removes it, <kbd>Ctrl</kbd>+<kbd>D</kbd> makes a copy. Hinges and wrap covers show buttons to swing or fold them.</li>
-    <li>Drag the empty background to look around, scroll to zoom, right-drag to slide the view.</li>
-    <li><b>Download for printing</b> gives you one file for each kind of part, with how many of each to print.</li>
-  </ul>
-  <p class="small">Plain blocks only have sockets, so two of them need something between: a twist block, a mini block half, or a grub joiner screwed into the threaded hole in the middle of a face. Parts follow the open MADOS system by MADOS 3D (CC0). A part only goes where its plugs meet sockets the right way round, and never through another part.</p>
-  <form method="dialog"><button class="primary">Start building</button></form>
+  <ol class="steps">
+    <li><b>Take a part.</b> Drag it out of the list, or click it to stand it on the floor. The box above the list finds a part by name or number.</li>
+    <li><b>Hold it over another part.</b> A green outline shows where it will go. If it cannot go there, the builder says why.</li>
+    <li><b>Let go, and it snaps in.</b> Carry on until it is built, then press <b>Download for printing</b> to see how many of each part to print and to get the files.</li>
+  </ol>
+  <table class="keys">
+    <tr><th colspan="2">While holding a part</th></tr>
+    <tr><td><kbd>R</kbd> or the mouse wheel</td><td>spin it</td></tr>
+    <tr><td><kbd>F</kbd></td><td>tip it over</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>put it back</td></tr>
+    <tr><td>Drag it back onto the list</td><td>remove it from the build</td></tr>
+    <tr><th colspan="2">Parts in the build</th></tr>
+    <tr><td>Click</td><td>select a part; its details and buttons appear on the right</td></tr>
+    <tr><td>Drag</td><td>move a part. Hold <kbd>Shift</kbd> to move everything joined to it</td></tr>
+    <tr><td><kbd>Delete</kbd></td><td>remove the selected part</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>D</kbd></td><td>make a copy of it</td></tr>
+    <tr><td><kbd>R</kbd> <kbd>F</kbd> and the arrow keys</td><td>turn, tip and slide the selected piece</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>undo. <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redoes</td></tr>
+    <tr><th colspan="2">Looking around</th></tr>
+    <tr><td>Drag the background</td><td>turn the view. Right-drag slides it, the wheel zooms</td></tr>
+    <tr><td>Double-click a part</td><td>bring it to the middle of the view</td></tr>
+    <tr><td><kbd>Home</kbd></td><td>bring the whole build into view</td></tr>
+  </table>
+  <p class="small"><b>Why will two blocks not join?</b> Plain blocks only have sockets, so two of them need something between: a twist block, a mini block half, or a joiner pushed or screwed into the opening in the middle of a face. A part only goes where its plugs meet sockets the right way round, and never through another part.</p>
+  <p class="small">Your build is kept in this browser as you go. Parts follow the open MADOS system by <a href="https://www.mados3d.com/" target="_blank" rel="noopener">MADOS 3D</a> (CC0). This builder is an unofficial community project.</p>
+  <form method="dialog" class="row end"><button class="primary">Start building</button></form>
 </dialog>
+
 <dialog id="custombox">
   <h2>Make a part to order</h2>
   <p class="small">The part is built from the same plug and socket shapes as the official parts, at the size you choose.</p>
@@ -86,6 +149,21 @@
   <p id="custom-status" class="small"></p>
   <div class="row end"><button id="custom-cancel">Cancel</button><button id="custom-make" class="primary">Make it</button></div>
 </dialog>
+
+<dialog id="exportbox">
+  <h2>What to print</h2>
+  <div id="export-body"></div>
+  <label class="check"><input type="checkbox" id="export-preview" checked> Include a model of the whole build put together, for looking at</label>
+  <div class="row end"><button id="export-list" title="Copy this list as text">Copy the list</button><span class="grow"></span><button id="export-cancel">Cancel</button><button id="export-go" class="primary">Download the files</button></div>
+</dialog>
+
+<dialog id="sharebox">
+  <h2>A link to this build</h2>
+  <p id="share-note" class="small"></p>
+  <div class="row"><input id="share-url" type="text" readonly aria-label="Link to this build"><button id="share-copy" class="primary">Copy</button></div>
+  <form method="dialog" class="row end"><button>Close</button></form>
+</dialog>
+
 <input type="file" id="file" accept=".json,application/json" hidden>
 <script type="module" src="app.js"></script>
 </body>

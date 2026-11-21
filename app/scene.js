@@ -7,6 +7,9 @@ import * as kit from "./kit.js";
 const GROUND_SLACK = 0.01;   // mm a part may dip below the ground before a placement is refused
 const FALLBACK_REACH = 15;    // mm: a grub joiner's joint is 10 mm below the tip the cursor lands on
 const TARGET_REACH = 25;      // mm from the cursor within which joints are tried as the anchor
+const OWN_REACH = 45;         // mm: the same, for joints of the very part under the cursor (a 40 mm joiner's far end)
+const ENGAGE_PULL = 2.5;      // mm nearer the cursor a placement counts for each joint it engages, so a part settles where
+                              // all its plugs are in rather than hanging half off, unless it is plainly held off to one side
 
 export class Scene {
   constructor(catalog) {
@@ -15,6 +18,7 @@ export class Scene {
     this.items = [];
     this.nextId = 1;
     this.scale = 1;
+    this.title = "";
   }
 
   // ---------------------------------------------------------------- basics
@@ -127,21 +131,26 @@ export class Scene {
   // -> {pose, payload, engaged, normal} or null.  A rigid payload goes where its mating
   // face is centred nearest the cursor; a jointed part first takes the fold that engages
   // the most joints.
-  choosePlacement(payload, ctx, { hit, normal, viewDir, prefR }) {
+  choosePlacement(payload, ctx, { hit, normal, viewDir, prefR, item = null }) {
     if (!ctx.fixed.length) return null;
     const near = (limit, test) => ctx.fixed
       .map((p) => ({ p, dist: kit.norm(kit.sub(p.pos, hit)) }))
       .filter((x) => x.dist < limit && test(x.p))
       .sort((a, b) => a.dist - b.dist);
-    let face = near(TARGET_REACH, (p) => kit.dot(p.normal, normal) > 0.9);
-    if (!face.length) {
-      // not on a flat face (a socket's wall, a screw's thread): the nearest joint that faces the viewer
-      const close = near(FALLBACK_REACH, (p) => kit.dot(p.normal, viewDir) < -0.1);
-      if (!close.length) return null;
-      const n = close[0].p.normal;
-      face = near(TARGET_REACH, (p) => kit.dot(p.normal, n) > 0.9);
+    // Which way the target faces.  The part under the cursor decides first: its own joints
+    // on the surface that was hit, or, when the cursor is on something that is not a flat
+    // face (a joiner's thread, a socket's wall), its nearest joint that looks at the viewer.
+    // Without this a joiner sticking out of a block hands the choice to the block behind it.
+    let chosen = [];
+    if (item != null) {
+      chosen = near(TARGET_REACH, (p) => p.item === item && kit.dot(p.normal, normal) > 0.9);
+      if (!chosen.length) chosen = near(OWN_REACH, (p) => p.item === item && kit.dot(p.normal, viewDir) < -0.1);
     }
-    const n = face[0].p.normal;
+    if (!chosen.length) chosen = near(TARGET_REACH, (p) => kit.dot(p.normal, normal) > 0.9);
+    if (!chosen.length) chosen = near(FALLBACK_REACH, (p) => kit.dot(p.normal, viewDir) < -0.1);
+    if (!chosen.length) return null;
+    const n = chosen[0].p.normal;
+    const face = near(Math.max(TARGET_REACH, chosen[0].dist + 0.01), (p) => kit.dot(p.normal, n) > 0.9);
     const targets = face.slice(0, 8).map((x) => x.p);
     const plane = kit.dot(targets[0].pos, n);
     const onPlane = kit.sub(hit, kit.scale(n, kit.dot(hit, n) - plane));
@@ -156,8 +165,8 @@ export class Scene {
           .filter((p) => kit.dot(p.normal, n) < -0.9 && Math.abs(kit.dot(p.pos, n) - plane) < 0.01);
         if (!mating.length) continue;
         const centre = mating.reduce((s, p) => kit.add(s, p.pos), [0, 0, 0]).map((v) => v / mating.length);
-        const turn = kit.rotationAngle(kit.matMul(c.pose.r, kit.transpose(prefR)));
-        let score = kit.norm(kit.sub(centre, onPlane)) + 0.05 * turn - 0.01 * c.engaged;
+        const turn = kit.rotationAngle(kit.matMul(c.pose.r, kit.transpose(heldToward(prefR, c.pose.r, n))));
+        let score = kit.norm(kit.sub(centre, onPlane)) + 0.05 * turn - ENGAGE_PULL * c.engaged;
         if (jointed) score += (vi ? 20 : 0) - 1000 * c.engaged;
         if (!best || score < best.score) best = { pose: c.pose, payload: variant, engaged: c.engaged, normal: n, score };
       }
@@ -238,6 +247,21 @@ export class Scene {
       }
     }
     return out;
+  }
+
+  // Sides of parts that are only partly joined: some, but not all, of the plugs on one
+  // side of a body are in a socket.  Such a joint holds, but less firmly (a twist block
+  // on one plug of four held in a test print, weakly).  -> [{item, engaged, of}]
+  partlyJoined() {
+    const groups = new Map();
+    const key = (p) => `${p.item}:${p.body}:${p.normal.map((v) => Math.round(v * 10)).join(",")}`;
+    for (const p of this.fixedPorts()) {
+      if (!kit.isPlug(p) || p.system || p.passive) continue;
+      if (!groups.has(key(p))) groups.set(key(p), { item: p.item, engaged: 0, of: 0 });
+      groups.get(key(p)).of += 1;
+    }
+    for (const j of this.joints()) if (groups.has(key(j.a))) groups.get(key(j.a)).engaged += 1;
+    return [...groups.values()].filter((g) => g.engaged > 0 && g.engaged < g.of);
   }
 
   // Groups of items that are joined together, as arrays of item ids.
@@ -326,7 +350,7 @@ export class Scene {
   }
 
   toJSON() {
-    return { format: "mados-kit build", version: 1, scale: this.scale,
+    return { format: "mados-kit build", version: 1, scale: this.scale, ...(this.title ? { title: this.title } : {}),
              items: this.items.map((it) => ({ name: it.name, pose: it.pose, angles: it.angles })) };
   }
 
@@ -337,8 +361,23 @@ export class Scene {
     this.items = [];
     this.nextId = 1;
     this.scale = data.scale ?? 1;
+    this.title = typeof data.title === "string" ? data.title.slice(0, 80) : "";
     for (const it of data.items) this.add(it.name, it.pose, it.angles);
   }
+}
+
+// The way a part is held (prefR), tipped by the smallest turn that brings the side it would
+// mate with (in the candidate orientation r) to face the target, whose outward normal is n.
+// Candidates are compared with this, not with prefR itself, so that spinning the held part
+// about n always changes which of them is nearest: without it a part that must flip over
+// to fit, such as a cover, is equally far from every way round.
+function heldToward(prefR, r, n) {
+  const want = kit.scale(n, -1);
+  const now = kit.matVec(prefR, kit.matVec(kit.transpose(r), want));
+  const d = Math.min(1, Math.max(-1, kit.dot(now, want)));
+  if (d > 0.9999) return prefR;
+  const axis = d < -0.9999 ? (Math.abs(n[2]) < 0.9 ? kit.cross(n, [0, 0, 1]) : [1, 0, 0]) : kit.cross(now, want);
+  return kit.matMul(kit.rotation(axis, (Math.acos(d) * 180) / Math.PI), prefR);
 }
 
 // Round a pose that is a whole number of quarter turns back to exact integers.

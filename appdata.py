@@ -132,6 +132,30 @@ def export_part(part, label, category, note, out_dir, print_mesh=None, folder=""
     entry["print"] = {"mesh": rel, "triangles": write_stl(whole, os.path.join(out_dir, rel)),
                       "volume_mm3": round(float(whole.volume()), 1), "bubbles_filled": filled,
                       "bbox": [round(float(v), 3) for v in whole.bounding_box()]}
+    annotate(entry)
+    return entry
+
+
+FINE_LAYER = "0.1 or 0.12"   # mm [the author's Printables pages: the threaded and press-in joiners and every hinge]
+USUAL_LAYER = "0.2"          # mm [the author's Printables pages: every other part]
+PART_PAGE = "https://www.mados3d.com/mados/{}"   # [checked 2026-11-20: mados-20ge, mados-20ba and mados-20hk answer, an unknown number does not]
+
+
+def annotate(entry):
+    """Add what a person printing the part wants to know: the author's layer height for it,
+    and the address of his page for an official part.  Works on a finished catalogue entry,
+    so an existing catalogue can be brought up to date without rebuilding its meshes."""
+    import json
+    import re
+    name = entry["name"]
+    layer = FINE_LAYER if entry["kind"] == "hinge" else USUAL_LAYER
+    if re.fullmatch(r"MADOS-20[A-Z]{2}", name):
+        entry["page"] = PART_PAGE.format(name.lower())
+        text = json.load(open(os.path.join(M.UP, "printables_descriptions.json"))).get(name, {}).get("description", "")
+        found = re.search(r"([\d.]+)mm(?: or ([\d.]+)mm)? Recommended layer height", text)
+        if found:
+            layer = " or ".join(v for v in found.groups() if v)
+    entry["print"]["layer"] = layer
     return entry
 
 

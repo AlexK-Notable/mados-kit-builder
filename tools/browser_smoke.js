@@ -18,8 +18,8 @@ async page => {
     const a = window.madosApp;
     a.scene.load({ format: "mados-kit build", scale: 1, items: list });
     a.refresh();
-    a.fitView();
-  }, items);
+    a.fitView("corner");
+  }, items).then(() => page.waitForFunction(() => window.madosApp.drawn().every((row) => row.ok), null, { timeout: 30000 }));
   const state = () => app(() => {
     const s = window.madosApp.scene;
     return {
@@ -105,17 +105,19 @@ async page => {
 
   await reset([{ name: "channel_40", pose: { r: I, t: [0, 0, 10] }, angles: [] }]);
   await drag(await card("twist_40_s3"), await at([0, -10, 20]));
-  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#export")]);
+  await page.click("#export");
+  const listed = await app(() => document.querySelectorAll("#export-body tr").length);
+  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#export-go")]);
   await download.saveAs("mados-build-smoke.zip");
   const files = await app(async () => (await window.madosApp.printFiles()).map((f) => f.name));
   check("the print download holds one file for each kind of part, a parts list and the build",
-    files.length === 5 && files.includes("PARTS.txt") && files.includes("build.json") && files.filter((f) => f.startsWith("print/1x_")).length === 2, files.join(" "));
+    listed === 2 && files.length === 5 && files.includes("PARTS.txt") && files.includes("build.json") && files.filter((f) => f.startsWith("print/1x_")).length === 2, files.join(" "));
 
   // the author's whole range, the search box, and a grub joiner between two plain blocks
   const official = await app(() => window.madosApp.catalog.parts.filter((p) => /^MADOS-20[A-Z]{2}$/.test(p.name)).length);
   check("all 63 of the author's parts are in the list", official === 63, String(official));
   await page.fill("#search", "grub");
-  const shown = await app(() => [...document.querySelectorAll(".card:not([hidden])")].map((c) => c.dataset.part));
+  const shown = await app(() => [...document.querySelectorAll(".card[data-part]:not([hidden])")].map((c) => c.dataset.part));
   check("the search box narrows the list", shown.length === 1 && shown[0] === "MADOS-20GE", shown.join(" "));
   await reset([{ name: "MADOS-20BB", pose: { r: I, t: [0, 0, 10] }, angles: [] }]);
   d = await drag(await card("MADOS-20GE"), await at([0, -10, 20]));
@@ -151,6 +153,113 @@ async page => {
   await page.reload();
   await page.waitForFunction(() => window.madosApp, null, { timeout: 90000 });
   check("the build is still there after the page is reloaded", (await app(() => JSON.stringify(window.madosApp.scene.toJSON()))) === saved);
+
+  // ---- what a newcomer tries without reading anything
+  await reset();
+  await page.click('.card[data-part="MADOS-20BA"]');
+  await page.waitForTimeout(400);
+  s = await state();
+  check("a click on a part in the list stands one on the floor", s.items.length === 1 && s.items[0].startsWith("MADOS-20BA@"), s.items.join(" "));
+  await page.click('.card[data-part="MADOS-20BA"]');
+  await page.waitForTimeout(400);
+  s = await state();
+  check("a second click stands another beside it, not inside it", s.items.length === 2 && s.items[0] !== s.items[1] && s.pieces === 2, s.items.join(" "));
+
+  await reset([{ name: "channel_40", pose: { r: I, t: [0, 0, 10] }, angles: [] }]);
+  d = await drag(await card("twist_40_s3"), await at([0, -10, 20]));
+  const list = await app(() => { const r = document.getElementById("palette").getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+  const twistAt = await app(() => { const sc = window.madosApp.scene; const b = sc.payloadBox(sc.payloadOf([sc.items[1].id]), sc.items[1].pose); return [(b.min[0] + b.max[0]) / 2, b.min[1] + 2, (b.min[2] + b.max[2]) / 2 + 5]; });
+  await page.mouse.move(...(await at(twistAt))); await page.mouse.down();
+  await page.mouse.move(list[0] + 200, list[1], { steps: 6 }); await page.mouse.move(list[0], list[1], { steps: 6 });
+  await page.waitForTimeout(120);
+  const removing = await app(() => window.madosApp.dragging?.remove);
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  s = await state();
+  check("a placed part dragged back onto the list is removed, and undo returns it", removing === true && s.items.length === 1, s.items.join(" "));
+  await page.click("#undo");
+  check("undo brings the removed part back", (await state()).items.length === 2);
+
+  await reset([{ name: "channel_40_2x2", pose: { r: I, t: [0, 0, 20] }, angles: [] }]);
+  const from = await card("cover_20x40_s4"), over = await at([0, 0, 40]);
+  await page.mouse.move(from[0], from[1]); await page.mouse.down();
+  await page.mouse.move(from[0] + 20, from[1] + 8, { steps: 3 }); await page.mouse.move(over[0], over[1], { steps: 8 });
+  await page.waitForTimeout(150);
+  const r0 = await app(() => JSON.stringify(window.madosApp.dragging?.target?.pose.r));
+  await page.mouse.wheel(0, -120);
+  await page.waitForTimeout(250);
+  const r1 = await app(() => JSON.stringify(window.madosApp.dragging?.target?.pose.r ?? null));
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  check("the mouse wheel spins the part being held, and Escape puts it back", r0 !== r1 && (await state()).items.length === 1, `${r0} -> ${r1}`);
+
+  await reset([{ name: "channel_40", pose: { r: I, t: [0, 0, 10] }, angles: [] }]);
+  d = await drag(await card("cover_20x40_s4"), await at([0, 2, 20]));
+  s = await state();
+  check("a cover let go near the middle of a face settles with all its plugs in", d.target?.engaged === 8, d.hint);
+
+  // a twist block held well off to one side is allowed, and reported as a weak hold
+  await reset([{ name: "MADOS-20BA", pose: { r: I, t: [0, 0, 10] }, angles: [] }]);
+  await page.fill("#search", "20AA");
+  await drag(await card("MADOS-20AA"), await at([0, 0, 20]));
+  await page.fill("#search", "");
+  await app(() => { const it = window.madosApp.scene.items[1]; it.pose = { r: it.pose.r, t: [it.pose.t[0] + 10, it.pose.t[1] - 10, it.pose.t[2]] }; window.madosApp.refresh(); });
+  const weak = await app(() => window.madosApp.scene.partlyJoined());
+  const told = await app(() => document.getElementById("summary").textContent);
+  check("a twist block on one plug of four is reported as only partly joined", weak.length === 1 && weak[0].engaged === 1 && weak[0].of === 4 && /partly joined/.test(told), JSON.stringify(weak));
+
+  await reset([{ name: "channel_40", pose: { r: I, t: [0, 0, 10] }, angles: [] }]);
+  await drag(await card("twist_40_s3"), await at([0, -10, 20]));
+  await app(() => window.madosApp.select(1));
+  await page.keyboard.press("ArrowRight");
+  s = await state();
+  check("an arrow key slides the selected piece, joined parts and all", s.pieces === 1 && /channel_40@10,0,10/.test(s.items[0]), s.items.join(" "));
+  await page.click('#selection button[data-do="copy-piece"]');
+  await page.waitForTimeout(300);
+  s = await state();
+  check("Copy all stands a copy of the joined parts on the floor", s.items.length === 4 && s.pieces === 2 && s.joints === 8, s.items.join(" "));
+
+  // a link carries the build
+  const before2 = await app(() => JSON.stringify(window.madosApp.scene.toJSON().items));
+  const code = await app(() => window.madosApp.share.encode(window.madosApp.scene.toJSON()));
+  await reset();
+  await app((c) => { location.hash = c; }, code);
+  await page.waitForFunction((n) => window.madosApp.scene.items.length === n, 4, { timeout: 10000 });
+  const after2 = await app(() => JSON.stringify(window.madosApp.scene.toJSON().items));
+  check("a link made from a build opens the same build", before2 === after2 && (await app(() => location.hash)) === "", `${code.length} letters`);
+
+  const examples = await app(async () => (await (await fetch("examples/index.json")).json()).map((e) => e.file));
+  let good = examples.length >= 3;
+  for (const file of examples) {
+    const build = await app(async (f) => (await fetch(`examples/${f}`)).json(), file);
+    await reset(build.items);
+    const e = await state();
+    const loose = await app(() => window.madosApp.scene.partlyJoined().length);
+    if (e.pieces !== 1 || loose) good = false;
+  }
+  check("every example opens as one joined piece with nothing partly joined", good, examples.join(" "));
+
+  await page.click("#menu-button");
+  await page.click("#theme");
+  const dark = await app(() => document.documentElement.dataset.theme);
+  await page.click("#menu-button");
+  await page.click("#theme");
+  check("the colours switch between light and dark", dark === "dark" && (await app(() => document.documentElement.dataset.theme)) === "light");
+
+  await reset([{ name: "channel_40", pose: { r: I, t: [0, 0, 10] }, angles: [] }]);
+  await page.setViewportSize({ width: 420, height: 800 });
+  await page.waitForTimeout(300);
+  const phone = await app(() => {
+    const strip = document.getElementById("cards").getBoundingClientRect(), stage = document.getElementById("stage").getBoundingClientRect();
+    const side = document.getElementById("side").getBoundingClientRect();
+    return { strip: strip.top > stage.top && strip.width > 300, stage: stage.height > 300, sideOff: side.left >= window.innerWidth - 1, toggle: !document.getElementById("panel-toggle").hidden };
+  });
+  await page.click("#panel-toggle");
+  await page.waitForTimeout(300);
+  const sideOn = await app(() => document.getElementById("side").getBoundingClientRect().left < window.innerWidth - 100);
+  await page.click("#side-close");
+  await page.setViewportSize({ width: 1400, height: 860 });
+  check("on a phone-sized screen the list sits under the view and the parts list opens from a button", phone.strip && phone.stage && phone.sideOff && phone.toggle && sideOn, JSON.stringify(phone));
 
   return lines.join("\n");
 }
