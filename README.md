@@ -48,13 +48,17 @@ and socket shapes as his parts.
 
 ## What is not right yet
 
-- Nothing here has been test-printed. The fit of generated and scaled parts is unproven.
+- Only part of this has been test-printed. A first print (PLA, 0.2 mm layers) confirmed
+  the twist joint, a generated block and a generated twist block against official parts,
+  a block and cover at 1.5 times scale (slightly looser than at normal size), the pull
+  joiner between two blocks, and the corner brace and open plate in an inside corner.
+  The grub joiner and the other small joiners have not been printed yet.
 - Joiners take up no space in the builder: two joiners can cross inside a block, and a
   cover can go on over a joiner that sticks out.
 - The builder does not check that a part can physically be pushed into place, only that
   it fits once there.
-- A twist block is accepted with one plug engaged; the author's twist joints work in
-  groups of four.
+- A twist block is accepted with only one of its four plugs engaged. In the test print
+  that held, but weakly, and the builder does not warn about it.
 - Sockets on stepped or inset faces of nine official parts are not found, so those faces
   refuse parts they would really take.
 - The sideways boss of the block-to-plate joiner (MADOS-20FB) is not modelled.
