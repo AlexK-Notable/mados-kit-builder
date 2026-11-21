@@ -5,7 +5,7 @@ block system by MADOS 3D. Drag parts into a scene, let go, and they snap togethe
 system's own joint rules. When the build is done, the builder tells you how many of each
 part to print and hands you the files.
 
-![The builder with a small build in it](docs/builder.png)
+![The builder with a frame corner in it, one brace selected](docs/builder.png)
 
 This is an unofficial community project. It is not made or endorsed by MADOS 3D.
 
@@ -15,16 +15,44 @@ You need Python 3 and a current browser. Nothing has to be installed.
 
     python3 serve.py
 
-opens the builder at http://127.0.0.1:8377/.
+opens the builder at http://127.0.0.1:8377/. The `app/` folder is a plain static web
+page, so any web host can serve it as it is.
 
-- Drag a part from the list on the left into the scene. Hold it over another part: the
-  green outline shows where it will go. Let go and it snaps in.
-- While dragging, `R` spins the part and `F` tips it over.
-- Drag a placed part to move it; hold `Shift` to move everything joined to it.
-- "Download for printing" gives a zip with one STL for each kind of part, named with how
-  many to print, a parts list, and the build itself so it can be opened again.
+**Building.** Drag a part out of the list, or click it to stand it on the floor. Hold it
+over another part: a green outline shows where it will go, and if it cannot go there the
+builder says why. Let go and it snaps in.
 
-The `app/` folder is a plain static web page, so any web host can serve it as it is.
+![A cover held over a block, with a green outline where it will snap](docs/snapping.png)
+
+- While holding a part, `R` or the mouse wheel spins it to the next way it fits, and `F`
+  tips it over. `Esc` puts it back.
+- Green rings mark the free plugs a held part can join. Plain blocks only have sockets,
+  so two of them need something between: the builder says so, and points at the parts
+  that do it.
+- Drag a placed part to move it. `Shift` brings everything joined to it; `Alt` carries
+  off a copy. Dragging a part back onto the list removes it.
+- Click a part to see what it is, how big it is and what it weighs, and to copy, turn,
+  tip, lift or remove it. Hinges and wrap covers show buttons to swing or fold them.
+- Undo and redo cover everything. The build is kept in the browser as you go.
+
+**Printing.** "Download for printing" shows how many of each part to print, about how
+much filament that is, and which parts want finer layers, then gives a zip with one STL
+for each kind of part, a parts list with the author's print advice, and the build itself
+so it can be opened again.
+
+![The list of what to print, with sizes and layer heights](docs/print-list.png)
+
+**Keeping and sharing.** The Build menu saves a build to a file and opens it again,
+copies a link that carries the whole build, saves a picture of the view, and opens three
+small example builds. A saved build can also be dropped onto the page.
+
+**Other screens.** There are dark colours (they follow the system, or Build > Dark
+colours), and on a phone the list moves under the view: pull a part up out of it, or rest
+a finger on it, to pick it up.
+
+| | |
+|---|---|
+| ![The builder in dark colours with a hinge selected](docs/dark.png) | ![The builder on a phone-sized screen](docs/phone.png) |
 
 The list holds all 63 of the author's parts under his own names and numbers, and 20
 generated sizes he does not publish. Three kinds of joint are modelled: the plugs and
@@ -57,8 +85,9 @@ and socket shapes as his parts.
   cover can go on over a joiner that sticks out.
 - The builder does not check that a part can physically be pushed into place, only that
   it fits once there.
-- A twist block is accepted with only one of its four plugs engaged. In the test print
-  that held, but weakly, and the builder does not warn about it.
+- A part is accepted with only some of its plugs in a socket. In the test print a twist
+  block on one plug of four held, but weakly; the builder allows it and marks the part as
+  partly joined.
 - Sockets on stepped or inset faces of nine official parts are not found, so those faces
   refuse parts they would really take.
 - The sideways boss of the block-to-plate joiner (MADOS-20FB) is not modelled.
@@ -67,15 +96,16 @@ and socket shapes as his parts.
 
 | | |
 |---|---|
-| `app/` | the builder: `kit.js` (the joint rule), `scene.js` (the build), `app.js` (the interface) |
-| `app/data/` | the built catalogue: display meshes, print STLs, and where every plug and socket is |
+| `app/` | the builder: `kit.js` (the joint rule), `scene.js` (the build), `app.js` (the interface), `share.js` (builds in links) |
+| `app/data/` | the built catalogue: part pictures, display meshes, print STLs, and where every plug and socket is |
+| `app/examples/` | the example builds the Build menu offers |
 | `serve.py` | local launcher, and parts made to order |
 | `madoskit.py` | part generators: blocks, twist blocks, covers, wrap covers, hinges |
 | `kitlogic.py` | the joint rule in Python: where a part's plugs and sockets are, and when two parts mate |
 | `kitparts.py` | parts as bodies, ports and moving joints |
 | `appdata.py`, `tools/build_app_data.py` | turns parts into `app/data/` |
 | `params.py`, `model.py` | ten example generated parts with their checks |
-| `tools/` | measurement and verification scripts |
+| `tools/` | measurement and verification scripts, and the ones that make the part pictures (`make_thumbnails.js`) and the pictures on this page (`screenshots.js`) |
 | `upstream/` | the list of the author's published files; the files themselves are downloaded, not kept here |
 
 `app/data/` is rebuilt from the author's files. Fetch them as above, plus the print files
@@ -92,6 +122,8 @@ rebuilds only the named parts).
   without the solids overlapping (`tools/check_kit.py`).
 - The JavaScript in the app must give the same answers as the Python reference
   (`node --test app/test/`).
+- The interface is driven with a real mouse and with touch, and what it does is compared
+  with what it should do (`tools/browser_smoke.js`).
 
 ## Licence and credit
 

@@ -39,8 +39,9 @@ const fromBase64Url = (text) => {
 
 async function through(stream, bytes) {
   const writer = stream.writable.getWriter();
-  writer.write(bytes);
-  writer.close();
+  // a damaged link fails on the reading side below; the writing side must not also complain
+  writer.write(bytes).catch(() => {});
+  writer.close().catch(() => {});
   return new Uint8Array(await new Response(stream.readable).arrayBuffer());
 }
 

@@ -215,3 +215,60 @@ test("every joiner of the author's has joints", () => {
   assert.equal(joiners.length, 10);
   for (const p of joiners) assert.ok(p.bodies[0].ports.length >= 2, `${p.name} has ${p.bodies[0].ports.length} joints`);
 });
+
+// ---------------------------------------------------------------- what the interface relies on
+test("a part held off to one side with one plug of four in is reported as partly joined", () => {
+  const { scene, onFloor, dropOn } = fresh();
+  const base = onFloor("MADOS-20BA");
+  const got = dropOn("MADOS-20AA", base, [0, 0, 1]);
+  assert.equal(got.engaged, 4);
+  assert.deepEqual(scene.partlyJoined(), [], "all four plugs are in");
+  const item = scene.get(got.ids[0]);
+  item.pose = { r: item.pose.r, t: kit.add(item.pose.t, [10, -10, 0]) };
+  const loose = scene.partlyJoined();
+  assert.equal(loose.length, 1);
+  assert.deepEqual({ item: loose[0].item, engaged: loose[0].engaged, of: loose[0].of }, { item: item.id, engaged: 1, of: 4 });
+});
+
+test("a cover dropped a little off the middle of a face settles with all its plugs in", () => {
+  const { scene, onFloor, one } = fresh();
+  onFloor("channel_40");
+  for (const hit of [[0, 0, 20], [3, 6, 20], [-4, -8, 20]]) {
+    const got = scene.choosePlacement(one("cover_20x40_s4"), scene.context(), { hit, normal: [0, 0, 1], viewDir: VIEW, prefR: R0 });
+    assert.equal(got.engaged, 8, `dropped at ${hit}`);
+  }
+});
+
+test("turning the held part about the face it is over changes which way round it goes on", () => {
+  const { scene, onFloor, one } = fresh();
+  onFloor("channel_40_2x2");
+  const at = (prefR) => scene.choosePlacement(one("cover_20x40_s4"), scene.context(), { hit: [0, 0, 40], normal: [0, 0, 1], viewDir: VIEW, prefR });
+  const first = at(R0), turned = at(kit.rotation([0, 0, 1], 90));
+  assert.equal(first.engaged, 8);
+  assert.equal(turned.engaged, 8);
+  assert.notDeepEqual(first.pose.r, turned.pose.r, "a cover has to flip over to fit, and must still follow the turn");
+});
+
+test("the part under the cursor decides where a held part attaches", () => {
+  const { scene, onFloor, dropOn, one } = fresh();
+  const base = onFloor("MADOS-20BB");
+  const grub = dropOn("MADOS-20GE", base, [0, 0, 1]);
+  assert.equal(grub.engaged, 1);
+  const tip = scene.itemPorts(scene.get(grub.ids[0])).find((p) => p.normal[2] > 0.9).pos;
+  // the cursor is on the side of the thread sticking out, whose surface faces sideways like the block's side does
+  const got = scene.choosePlacement(one("MADOS-20BA"), scene.context(), { hit: [tip[0] + 5, tip[1], tip[2] + 6], normal: [1, 0, 0], viewDir: [-0.6, 0.3, -0.74], prefR: R0, item: grub.ids[0] });
+  assert.ok(got, "a block can go onto the grub from its thread");
+  assert.equal(got.engaged, 1);
+  assert.ok(Math.abs(got.pose.t[2] - 30) < 1e-6, "it sits on top, over the grub");
+});
+
+test("a build's name is saved and opened with it", () => {
+  const { scene, onFloor } = fresh();
+  onFloor("MADOS-20BA");
+  scene.title = "Shelf bracket";
+  const again = new Scene(catalog);
+  again.load(JSON.parse(JSON.stringify(scene.toJSON())));
+  assert.equal(again.title, "Shelf bracket");
+  again.load({ format: "mados-kit build", items: [] });
+  assert.equal(again.title, "");
+});
