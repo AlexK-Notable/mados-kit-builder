@@ -5,13 +5,18 @@ block system by MADOS 3D. Drag parts into a scene, let go, and they snap togethe
 system's own joint rules. When the build is done, the builder tells you how many of each
 part to print and hands you the files.
 
+**[Try it in your browser](https://alexk-notable.github.io/mados-kit-builder/)**: nothing to
+install, and it keeps working without a connection once it has been opened.
+
 ![The builder with a frame corner in it, one brace selected](docs/builder.png)
 
 This is an unofficial community project. It is not made or endorsed by MADOS 3D.
 
 ## Use it
 
-You need Python 3 and a current browser. Nothing has to be installed.
+The quickest way is the [copy on the web](https://alexk-notable.github.io/mados-kit-builder/).
+To run it on your own computer you need Python 3 and a current browser. Nothing has to
+be installed.
 
     python3 serve.py
 
@@ -118,7 +123,8 @@ files are kept in the browser as one checked set, so a second visit starts witho
 fetching anything and a newer version takes over all at once when the visitor says so.
 Meshes and pictures are named by their content and fetched once, when first wanted.
 The copy works from any folder of any static host; `.github/workflows/pages.yml`
-publishes it to GitHub Pages when started by hand.
+publishes it to GitHub Pages when started by hand, which is how the copy linked above
+is made.
 
 ## What is not right yet
 
