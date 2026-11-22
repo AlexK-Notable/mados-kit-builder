@@ -11,7 +11,7 @@ import { PartBook } from "../../app/families.js";
 
 const data = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "app", "data");
 const catalog = JSON.parse(readFileSync(join(data, "catalog.json"), "utf8"));
-const vectors = JSON.parse(readFileSync(join(data, "vectors.json"), "utf8"));
+const vectors = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "vectors.json"), "utf8"));
 const parts = new PartBook(catalog);          // sizes a family makes are put together on asking
 
 test("the catalogue has parts with ports and occupancy", () => {

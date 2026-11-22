@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the data the app loads into app/data/: the catalogue (ports, joints, occupancy),
-one print mesh per part, a simplified display mesh per body, and the reference answers the
-JavaScript tests are checked against.
+one print mesh per part and a simplified display mesh per body; and, into tests/app/, the
+reference answers the JavaScript tests are checked against.
 
     python tools/build_app_data.py
     python tools/build_tiles.py                     # then cut blocks, twist blocks and covers into shared sections
@@ -18,8 +18,10 @@ from mados_kit import catalogue as A
 from mados_kit import joints as K
 from mados_kit import parts as P
 from mados_kit import generators as M
+from mados_kit import store
 
 OUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "data"))
+VECTORS = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests", "app", "vectors.json"))
 os.makedirs(OUT, exist_ok=True)
 t0 = time.time()
 
@@ -35,7 +37,9 @@ catalog = {
 only = set(sys.argv[1:])
 TILED = {"MADOS-20BA", "MADOS-20BB", "MADOS-20BC", "MADOS-20BD", "MADOS-20BE", "MADOS-20AA", "MADOS-20AB", "MADOS-20AC",
          "MADOS-20AD", "MADOS-20AE", "MADOS-20AI", "MADOS-20AT", "MADOS-20AU", "MADOS-20AV"}      # as in tools/build_tiles.py
-previous = json.load(open(os.path.join(OUT, "catalog.json"))) if only else None
+before = json.load(open(os.path.join(OUT, "catalog.json"))) if os.path.exists(os.path.join(OUT, "catalog.json")) else None
+previous = before if only else None
+drawn = {p["name"]: p for p in before["parts"]} if before else {}
 built = {}
 for label, category, note, make, print_mesh in A.catalogue():
     if only:
@@ -49,6 +53,10 @@ for label, category, note, make, print_mesh in A.catalogue():
             continue
     part = make()
     entry = A.export_part(part, label, category, note, OUT, print_mesh() if print_mesh else None)
+    # the part's picture is kept while its display meshes are the very same files (they are named by their content)
+    was = drawn.get(entry["name"])
+    if was and was.get("thumb") and [b.get("mesh") for b in was["bodies"]] == [b["mesh"] for b in entry["bodies"]]:
+        entry["thumb"] = was["thumb"]
     catalog["parts"].append(entry)
     built[part["name"]] = (part, entry)
     ports = sum(len(b["ports"]) for b in entry["bodies"])
@@ -61,7 +69,7 @@ if only:                                                # the sections and famil
             catalog[key] = previous[key]
     if any("mesh" in entry["print"] and entry["name"] in TILED for _, entry in built.values()):
         print("note: a part that is kept as sections was rebuilt whole; run tools/build_tiles.py to cut it again")
-json.dump(catalog, open(os.path.join(OUT, "catalog.json"), "w"))
+store.save(OUT, catalog)                        # and clears away the files of parts that changed
 if not os.path.exists(os.path.join(OUT, "custom", "index.json")):       # parts made to order are added by serve.py
     os.makedirs(os.path.join(OUT, "custom"), exist_ok=True)
     json.dump({"parts": []}, open(os.path.join(OUT, "custom", "index.json"), "w"))
@@ -79,7 +87,7 @@ def collides(mover, mover_pose, angles, fixed_keys):
 
 vectors = {"candidates": [], "collisions": [], "articulation": [], "snap": []}
 if only:
-    vectors = json.load(open(os.path.join(OUT, "vectors.json")))
+    vectors = json.load(open(VECTORS))
 pairs = [("cover_20x20_s4", "channel_40"), ("twist_40_s3", "channel_40"), ("MADOS-20DH", "channel_40"),
          ("hinge_40_s3", "channel_60"), ("MADOS-20AA", "MADOS-20BA"), ("channel_40", "twist_40_s3"),
          # the threaded-hole joint: the grub in a block; the plate joiners in the hollows of plates, and kept out of blocks
@@ -123,7 +131,7 @@ for mover, fixed in pairs:
     vectors["collisions"].append({"mover": mover, "fixed": fixed, "disagreements": disagree})
 
 if only:
-    json.dump(vectors, open(os.path.join(OUT, "vectors.json"), "w"))
+    json.dump(vectors, open(VECTORS, "w"))
     print(f"\nrebuilt {sorted(built)} in {time.time() - t0:.0f} s")
     sys.exit(0)
 
@@ -147,5 +155,5 @@ for k, pose in enumerate(full[:6]):
     got = K.snap(cover_ports, block_ports, rough)
     vectors["snap"].append({"mover": "cover_20x20_s4", "fixed": "channel_40", "rough": {"r": pose_json(rough)["r"], "t": [float(v) for v in rough[1]]},
                             "expect": pose_json(got[0]), "engaged": got[1]})
-json.dump(vectors, open(os.path.join(OUT, "vectors.json"), "w"))
+json.dump(vectors, open(VECTORS, "w"))
 print(f"\n{len(catalog['parts'])} parts -> {OUT}  ({time.time() - t0:.0f} s)")
