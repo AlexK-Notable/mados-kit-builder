@@ -157,7 +157,7 @@ into sections and checks each against the mesh it was cut from.
 - The joint rule is checked against the real meshes: every placement it allows must seat
   without the solids overlapping (`tools/check_kit.py`).
 - The JavaScript in the app must give the same answers as the Python reference
-  (`node --test app/test/`).
+  (`node --test app/test/*.test.mjs`).
 - The interface is driven with a real mouse and with touch, and what it does is compared
   with what it should do (`tools/browser_smoke.js`).
 

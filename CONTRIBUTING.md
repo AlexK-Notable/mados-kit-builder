@@ -22,7 +22,7 @@ To run the builder you need Python 3 and a browser:
 
 To run the quick tests you need Node 20 or newer, and nothing else:
 
-    node --test app/test/
+    node --test app/test/*.test.mjs
 
 To make parts or rebuild the data you also need the Python packages and the author's
 files, which are downloaded and not kept here:
@@ -41,7 +41,7 @@ files, which are downloaded and not kept here:
 
    | You changed | Run |
    |---|---|
-   | anything in `app/` | `node --test app/test/` |
+   | anything in `app/` | `node --test app/test/*.test.mjs` |
    | the interface | also the browser checks (`tools/browser_smoke.js`), and retake the README pictures if it looks different (`tools/screenshots.js`) |
    | the joint rule, a generator or a part's joints | also `tools/check_kit.py`, and rebuild the parts involved with `tools/build_app_data.py NAME...` |
    | blocks, twist blocks or covers | also `tools/build_tiles.py` |

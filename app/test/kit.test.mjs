@@ -1,5 +1,5 @@
 // Checks the app's connection logic against the Python reference's answers.
-//   node --test app/test/
+//   node --test app/test/*.test.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

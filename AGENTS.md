@@ -48,7 +48,7 @@ computed by the Python side, and the JavaScript tests must reproduce them.
 ## Commands
 
     python3 serve.py                      # run it: http://127.0.0.1:8377/
-    node --test app/test/                 # JavaScript against the Python reference; seconds, no packages
+    node --test app/test/*.test.mjs                 # JavaScript against the Python reference; seconds, no packages
     python tools/check_kit.py             # the rule against real meshes; minutes, needs requirements.txt and the author's files
     python tools/build_app_data.py [NAME...]   # rebuild app/data (about 15 minutes for everything)
     python tools/build_tiles.py           # cut repeating parts into sections and check them (about 20 minutes)

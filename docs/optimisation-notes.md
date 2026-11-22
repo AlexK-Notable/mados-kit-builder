@@ -114,7 +114,7 @@ Ordered roughly by what they would buy for the effort.
     joiners needed their own crossing rule. Manifold is now in the browser; a real overlap
     test on the candidates that pass the cube test would be exact.
 20. **Checks on every push.** Nothing runs automatically. A GitHub Action running
-    `node --test app/test/` and the browser checks would catch a broken push.
+    `node --test app/test/*.test.mjs` and the browser checks would catch a broken push.
 21. **Custom parts in their own process.** `serve.py` runs the CAD generator inside the
     request; a part that fails badly can take the launcher with it. Run it as a child
     process with a time limit.
