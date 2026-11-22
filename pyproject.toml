@@ -1,0 +1,22 @@
+[project]
+name = "mados-kit"
+version = "0.1.0"
+description = "The Python side of the MADOS kit builder: part generators, the joint rule, and the data the app reads"
+readme = "README.md"
+license = { text = "CC0-1.0" }
+requires-python = ">=3.10"
+# The launcher (serve.py) needs none of these. They are for making parts and rebuilding app/data.
+dependencies = []
+
+[project.optional-dependencies]
+cad = ["build123d", "manifold3d", "trimesh", "numpy", "rtree"]
+
+[project.scripts]
+mados-kit-builder = "mados_kit.server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

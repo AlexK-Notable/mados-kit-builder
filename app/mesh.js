@@ -1,7 +1,7 @@
 // The compact mesh files the app's data is kept in (.mkm): each point written once, in
 // whole micrometres, and triangles that name their points by number, both stored as
 // differences and gzipped.  About a twelfth the size of the same mesh as a binary STL.
-// The layout is described in meshfile.py, which writes them.
+// The layout is described in src/mados_kit/meshfile.py, which writes them.
 
 async function gunzip(buffer) {
   const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream("gzip"));

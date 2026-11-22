@@ -9,7 +9,7 @@ would cost. "Done" entries stay here with the numbers they produced.
 - **Compact mesh files instead of STL** (2026-11-21). The app's data was 296 MB, nearly all
   of it binary STL, which writes every corner of every triangle in full. Meshes are now
   kept as numbered points in whole micrometres plus triangles that name them, stored as
-  differences and gzipped (`meshfile.py`, `app/mesh.js`). Result: 296 MB to 25 MB, and a
+  differences and gzipped (`src/mados_kit/meshfile.py`, `app/mesh.js`). Result: 296 MB to 25 MB, and a
   20 mm block's print file is 0.16 MB to download instead of 1.8 MB. The download the
   user gets is still ordinary STL.
 - **STL had been quietly breaking some meshes.** Thirteen of the 195 stored STLs did not
@@ -103,7 +103,7 @@ Ordered roughly by what they would buy for the effort.
 17. **One whole build instead of patching.** Rebuilding a few parts patches the existing
     catalogue and reference answers in place. Twice this left stale entries behind. With
     14 done, always building everything is cheap enough.
-18. **One rule engine instead of two.** The joint rule exists in Python (`kitlogic.py`, the
+18. **One rule engine instead of two.** The joint rule exists in Python (`src/mados_kit/joints.py`, the
     reference, checked against real geometry) and in JavaScript (`app/kit.js`, what runs),
     kept in step by `vectors.json`. A single core in Rust compiled to WebAssembly for the
     browser and to a Python module for the build would end the double bookkeeping and be
@@ -114,7 +114,7 @@ Ordered roughly by what they would buy for the effort.
     joiners needed their own crossing rule. Manifold is now in the browser; a real overlap
     test on the candidates that pass the cube test would be exact.
 20. **Checks on every push.** Nothing runs automatically. A GitHub Action running
-    `node --test app/test/*.test.mjs` and the browser checks would catch a broken push.
+    `node --test tests/app/*.test.mjs` and the browser checks would catch a broken push.
 21. **Custom parts in their own process.** `serve.py` runs the CAD generator inside the
     request; a part that fails badly can take the launcher with it. Run it as a child
     process with a time limit.

@@ -5,13 +5,13 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import * as families from "../families.js";
-import * as kit from "../kit.js";
-import * as mesh from "../mesh.js";
-import { Scene } from "../scene.js";
-import { joined } from "../solid.js";
+import * as families from "../../app/families.js";
+import * as kit from "../../app/kit.js";
+import * as mesh from "../../app/mesh.js";
+import { Scene } from "../../app/scene.js";
+import { joined } from "../../app/solid.js";
 
-const data = join(dirname(fileURLToPath(import.meta.url)), "..", "data");
+const data = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "app", "data");
 const catalog = JSON.parse(readFileSync(join(data, "catalog.json"), "utf8"));
 const read = async (rel) => { const b = readFileSync(join(data, rel)); return mesh.decode(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)); };
 const sections = (tiles, which) => Promise.all(tiles.map(async ([i, offset]) => ({ ...(await read(catalog.tiles[i][which])), offset })));

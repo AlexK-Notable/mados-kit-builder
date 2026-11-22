@@ -21,7 +21,7 @@ import itertools
 
 import numpy as np
 
-import madoskit as M
+from . import generators as M
 
 CELL = M.CELL
 SOCKET = "socket"

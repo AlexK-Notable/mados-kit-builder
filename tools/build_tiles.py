@@ -30,11 +30,11 @@ import time
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import appdata as A
-import kitlogic as K
-import kitparts as P
-import meshfile
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+from mados_kit import catalogue as A
+from mados_kit import joints as K
+from mados_kit import parts as P
+from mados_kit import meshfile
 
 OUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "data"))
 SECTION = 2 * K.CELL          # mm: one face tile

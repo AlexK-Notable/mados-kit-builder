@@ -5,10 +5,10 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import * as mesh from "../mesh.js";
-import * as stl from "../stl.js";
+import * as mesh from "../../app/mesh.js";
+import * as stl from "../../app/stl.js";
 
-const data = join(dirname(fileURLToPath(import.meta.url)), "..", "data");
+const data = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "app", "data");
 const catalog = JSON.parse(readFileSync(join(data, "catalog.json"), "utf8"));
 const read = async (rel) => { const b = readFileSync(join(data, rel)); return mesh.decode(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)); };
 

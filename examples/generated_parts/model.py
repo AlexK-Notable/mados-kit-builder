@@ -3,14 +3,15 @@
 Builds every entry of params.PARTS, gates each one with numbers, and writes an STL per
 part into out/.  Exits non-zero on any failed check.
 
-Run:  python model.py [--only NAME]
+Run:  python examples/generated_parts/model.py [--only NAME]
 """
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "src"))
 from build123d import Compound
-import madoskit as M
+from mados_kit import generators as M
 import params as P
 
 OUT = os.path.join(os.path.dirname(__file__), "out")
@@ -88,7 +89,7 @@ def build(kind, s):
         over, cutters = sockets_free(man, body, open_faces)
         share = over / cutters.volume()
         check(share < P.SOCKET_FREE_MAX, f"socket cutters overlap material by {over:.4f} mm3 ({share:.4%})")
-        import kitlogic as K
+        from mados_kit import joints as K
         ports = [p for p in K.detect_ports(man, grid_origin=(0.0, 0.0, 0.0)) if p["kind"].startswith("twist")]
         kinds = sorted((p["kind"], p["strength"], tuple(p["normal"])) for p in ports)
         want = [("twist", s["strength"], (0, -1, 0))] * 4

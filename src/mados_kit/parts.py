@@ -15,8 +15,8 @@ import itertools
 
 import numpy as np
 
-import kitlogic as K
-import madoskit as M
+from . import joints as K
+from . import generators as M
 
 # [measured 2026-11-18 from MADOS-20HO] the leaves' plug faces are tilted this far from square
 # in the print pose, sit 5 mm from the pivot (the X axis through the origin), and the hinge

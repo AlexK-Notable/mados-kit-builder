@@ -5,10 +5,10 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import * as kit from "../kit.js";
-import { Scene } from "../scene.js";
+import * as kit from "../../app/kit.js";
+import { Scene } from "../../app/scene.js";
 
-const data = join(dirname(fileURLToPath(import.meta.url)), "..", "data");
+const data = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "app", "data");
 const catalog = JSON.parse(readFileSync(join(data, "catalog.json"), "utf8"));
 const R0 = kit.IDENTITY.r;
 const VIEW = [0.5, 0.5, -0.7];

@@ -16,8 +16,7 @@ import re
 
 from build123d import Align, Box, Compound, Plane, Polygon, Pos, Rot, extrude, import_step
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-UP = os.path.join(HERE, "upstream")
+from .paths import UPSTREAM as UP
 
 CELL = 10.0            # [measured] one joint per 10 mm cell
 TILE = 20.0            # [measured] socket pinwheel and all interiors repeat every 20 mm
