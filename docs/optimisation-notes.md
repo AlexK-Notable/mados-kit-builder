@@ -156,6 +156,14 @@ would cost. "Done" entries stay here with the numbers they produced.
 - **Fixed on the way:** asking whether anything floats went through the whole build for
   every separate piece, 0.67 s with 8,192 loose parts; it looks parts up by number now
   (3 ms).
+- **On GitHub Pages** (2026-11-22, Chrome, a visit with nothing kept). 383 KB sent before
+  the page is usable, in 0.56 s: three.js 181, pictures 85, the app's code 71, the
+  catalogue 40. Shapes come on top; the browser does not count what the service worker
+  hands over. A second visit sends nothing and is ready in 0.06 s. "Use without a
+  connection" fetches all 291 files in 5.0 s. GitHub gzips text and `.wasm` (Manifold
+  543 KB to 208) and gives every file `max-age=600`, whatever `_headers` says, so on this
+  host the service worker is what keeps files for good. A newly published version can
+  take that long to reach a visitor.
 - **Tests on every push** (2026-11-21). The app's tests run on GitHub for every push and
   pull request. The browser checks still run by hand.
 
