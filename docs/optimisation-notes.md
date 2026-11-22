@@ -143,6 +143,19 @@ would cost. "Done" entries stay here with the numbers they produced.
   stopped at 4 m, the grid was 0.6 m across and the floor that catches shadows 2.4 m, so a
   build a few metres across was cut off and stood on nothing. All four now follow the
   build, and the grid moves under a build that has left the middle.
+- **How far it goes: sixteen cubes of 512 joined blocks** (2026-11-22, Chrome, GeForce
+  RTX 4070 Ti SUPER). One cube, 8 x 8 x 8, every block with its plugs in a neighbour (one
+  piece, 2,044 joints, 6.7 million triangles): 4.4 ms a frame, 2.7 ms of work after a
+  change. Sixteen of them (8,192 parts, 32,704 joints, 107 million triangles, 8,194 draw
+  calls): 28 ms a frame, 19 ms when only the view turns, 91 ms after a change, 31 ms to
+  pick a part up, 0.3 s to open, 300 MB of memory. Being joined is not what costs: 8,192
+  blocks standing apart take as long to pick up and less after a change only because
+  there are no joints to find. What costs at this size is, after a change, finding the
+  joints (24 ms) and the partly joined sides (28 ms) again over the whole build, and
+  drawing 8,194 things one call each. Those are items 2 and 27.
+- **Fixed on the way:** asking whether anything floats went through the whole build for
+  every separate piece, 0.67 s with 8,192 loose parts; it looks parts up by number now
+  (3 ms).
 - **Tests on every push** (2026-11-21). The app's tests run on GitHub for every push and
   pull request. The browser checks still run by hand.
 
@@ -248,3 +261,9 @@ Ordered roughly by what they would buy for the effort.
     visitors fetch parts again that have not changed. Worth finding out whether running
     Manifold on one thread makes it repeatable; until then, rebuild only the parts a
     change touches (`build_app_data.py NAME...`).
+27. **Joints kept up to date, not found again.** After any change the joints, the pieces
+    and the partly joined sides are found again over the whole build: 5 ms at 600 parts,
+    about 55 ms at 8,192. Only the parts that moved and their neighbours can have changed,
+    so the list of joints could be kept and mended. The index of ports by place and the
+    set of filled cubes, built again each time a part is picked up (31 ms at 8,192), could
+    be kept the same way.
