@@ -157,15 +157,12 @@ export class Scene {
   // The box of some items together (all of them by default): {min, max}, or null for none.
   boxOf(ids = null) {
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-    const only = ids && new Set(ids);
-    let any = false;
-    for (const it of this.items) {
-      if (only && !only.has(it.id)) continue;
+    const items = ids ? ids.map((id) => this.get(id)).filter(Boolean) : this.items;      // by number, not by going through the whole build for each asking
+    for (const it of items) {
       const b = this.itemBox(it);
       for (let i = 0; i < 3; i++) { if (b.min[i] < min[i]) min[i] = b.min[i]; if (b.max[i] > max[i]) max[i] = b.max[i]; }
-      any = true;
     }
-    return any ? { min, max } : null;
+    return items.length ? { min, max } : null;
   }
 
   occupied(exclude = []) {
