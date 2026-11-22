@@ -205,25 +205,21 @@ function ensureMeshes(part) {
 
 const ensureBuild = () => Promise.all([...new Set(scene.items.map((it) => it.name))].map((name) => ensureMeshes(scene.parts.get(name))));
 
-// Fetch every other shape quietly, a few at a time, so a part is there by the time it is wanted.
-async function preloadAll() {
-  if (navigator.connection?.saveData) return;
-  const queue = catalog.parts.filter((p) => !ready(p));
-  const total = queue.length;
-  let done = 0;
-  const box = $("meshload");
-  const worker = async () => {
-    while (queue.length) {
-      const part = queue.shift();
-      try { await ensureMeshes(part); } catch { /* tried again when the part is wanted */ }
-      done += 1;
-      box.hidden = done >= total;
-      box.textContent = `Fetching part shapes… ${done} of ${total}`;
-    }
-  };
-  await Promise.all([worker(), worker(), worker()]);
-  box.hidden = true;
-}
+// A part's shape is fetched a little before it is wanted: when its card has stayed in view
+// for a moment, or the pointer or the keyboard reaches it.  Nothing is fetched for parts
+// nobody looks at, and nothing ahead of time for someone who has asked to save data.
+const LINGER_MS = 600;
+const lingering = new Map();
+const warm = (part) => { if (!navigator.connection?.saveData && !ready(part)) ensureMeshes(part).catch(() => {}); };
+const cardWatch = new IntersectionObserver((entries) => {
+  for (const entry of entries) {
+    const card = entry.target;
+    clearTimeout(lingering.get(card));
+    lingering.delete(card);
+    card.seen = entry.isIntersecting;
+    if (card.seen) lingering.set(card, setTimeout(() => { lingering.delete(card); card.warm(); }, LINGER_MS));
+  }
+});
 
 // Meshes for one part's bodies, sharing the loaded geometry.
 function bodyMeshes(part, material) {
@@ -1356,9 +1352,14 @@ function makeCard(part, recent = false) {
     image.src = thumbOf(part);
     label.textContent = part.label;
     size.textContent = `${sizeOf(part).map((v) => Math.round(v)).join(" × ")} mm`;
+    if (card.seen) warm(part);
   };
+  card.warm = () => warm(part);
   card.show(part);
   card.append(image, label, size);
+  cardWatch.observe(card);
+  card.addEventListener("pointerenter", () => warm(part));
+  card.addEventListener("focus", () => warm(part));
   card.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || drag || press) return;
     hidePopover();
@@ -2033,7 +2034,6 @@ async function start() {
   refresh();
   fitView("corner", false);
   requestAnimationFrame(frame);
-  preloadAll();
   if (!store.get(`${STORE}-seen`) && !opened) {
     if (scene.items.length) $("helpbox").showModal();   // an empty scene already shows how to start
     store.set(`${STORE}-seen`, "1");

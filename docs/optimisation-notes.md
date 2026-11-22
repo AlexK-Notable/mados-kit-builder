@@ -38,6 +38,20 @@ would cost. "Done" entries stay here with the numbers they produced.
   going by the corners of their triangles and 0.33 mm apart between them. Comparisons
   scatter points over the faces as well.
 
+- **Shapes fetched when a part is looked at, not all at once** (2026-11-21). The page used
+  to fetch the drawing shape of every part in the background after it opened. Now a
+  part's shape is fetched when its card has been in view for 0.6 s, or the pointer or
+  keyboard reaches it. Measured on a fresh visit with the cache off, files as stored:
+  5.56 MB in 144 requests before, 2.65 MB in 47 after. Print files were never part of
+  this; they are fetched when "Download for printing" is used.
+- **What a fresh visit is made of now** (measured the same way): three.js 0.72 MB, the
+  catalogue 0.57 MB, the shapes of the first screen of cards 0.85 MB, part pictures
+  0.28 MB, the app's own code 0.19 MB. A web host squeezes text as it sends it: gzip takes
+  the catalogue to 29 KB, three.js to 171 KB and `app.js` to 32 KB, so over the wire a
+  first visit is about 1.5 MB, most of it shapes and pictures.
+- **Tests on every push** (2026-11-21). The app's tests run on GitHub for every push and
+  pull request. The browser checks still run by hand.
+
 ## Open
 
 Ordered roughly by what they would buy for the effort.
@@ -52,9 +66,7 @@ Ordered roughly by what they would buy for the effort.
 2. **Draw repeated sections as instances.** A 200 mm block is ten sections, eight of them
    the same. Today they are merged into one mesh per part. three.js can draw one section
    many times (`InstancedMesh`), which matters once a build has hundreds of parts.
-3. **Stop fetching every shape in the background.** `preloadAll` quietly downloads all
-   the shapes after start. On a hosted copy that is every visitor pulling the whole
-   catalogue. Fetch on demand, or preload only the first screen of the list.
+3. *Done: see above.*
 4. **Lighter display meshes.** A 20 mm block is drawn with about 12,800 triangles.
    Quadric decimation (`fast-simplification` or `pyfqmr` in Python) keeps the look with
    a quarter of that; Manifold's own simplify, used now, is cautious.
@@ -63,8 +75,10 @@ Ordered roughly by what they would buy for the effort.
    if something else needs to read the files.
 6. **Thumbnails as WebP.** 83 PNGs, 1.3 MB; WebP would be about a third.
 7. **The catalogue's joints and cubes for sectioned parts.** The author's sectioned parts
-   still list every joint and occupied cube in `catalog.json` (0.6 MB). They could be put
-   together from their sections like the generated sizes are.
+   still list every joint and occupied cube in `catalog.json` (0.21 MB of its 0.57 MB).
+   They could be put together from their sections like the generated sizes are. Measured:
+   the whole catalogue is 29 KB once a host gzips it, so this saves almost nothing on the
+   wire; it would only shave parsing time.
 8. **Caching on a host.** Name data files by their content so they can be cached for
    good, and add a service worker so the builder works offline after the first visit.
 9. **The repository's history.** The STL files are gone from the working tree but not
@@ -113,8 +127,9 @@ Ordered roughly by what they would buy for the effort.
 19. **Real geometry for "does it fit".** Fit is decided on 5 mm cubes, which is why two
     joiners needed their own crossing rule. Manifold is now in the browser; a real overlap
     test on the candidates that pass the cube test would be exact.
-20. **Checks on every push.** Nothing runs automatically. A GitHub Action running
-    `node --test tests/app/*.test.mjs` and the browser checks would catch a broken push.
+20. **Browser checks on every push.** The quick tests run automatically now; the browser
+    checks (`tools/browser_smoke.js`) do not. They need a browser and the launcher in the
+    workflow.
 21. **Custom parts in their own process.** `serve.py` runs the CAD generator inside the
     request; a part that fails badly can take the launcher with it. Run it as a child
     process with a time limit.
