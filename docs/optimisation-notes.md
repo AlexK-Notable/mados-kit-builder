@@ -117,6 +117,16 @@ would cost. "Done" entries stay here with the numbers they produced.
 - **The history started afresh** (2026-11-21, was item 9). The 296 MB of STL files were
   gone from the working tree but not from git's history, so a clone fetched 149 MB. The
   repository now starts from one commit holding the files as they are: a clone is 8 MB.
+- **Measured in Chrome on a desktop graphics card** (2026-11-22, GeForce RTX 4070 Ti
+  SUPER, a 2036 x 1158 view). A frame of an example build takes 0.5 ms. Copies of the
+  frame example laid out in a grid: 150 parts (4.8 million triangles) 2.2 ms a frame with
+  shadows and 1.3 without; 384 parts (12.2 million) 4.6 and 3.0; 864 parts (20.3 million)
+  5.8 and 3.6. So drawing is no limit on a card like this, and what a person would notice
+  first in a very large build is the work after each change: 18 ms at 150 parts, 32 ms
+  at 384, 86 ms at 864 (items 10 and 11). Print files for a 7-part build: 0.37 s to
+  prepare, 0.25 s to zip, 19.7 MB to 7.8 MB. A published copy was kept on the device,
+  its server stopped, and the page reloaded: it opened, drew, showed every picture and
+  made print files; a newer version was offered and taken when asked.
 - **Tests on every push** (2026-11-21). The app's tests run on GitHub for every push and
   pull request. The browser checks still run by hand.
 
@@ -211,9 +221,9 @@ Ordered roughly by what they would buy for the effort.
 24. **A three.js with only what the builder uses.** three.js is 0.18 MB of the 0.75 MB a
     first visit sends. A build that drops the unused parts needs a bundler, and so a
     build step, which `app/` does not have.
-25. **A real graphics card in the measurements.** Frame times here come from software
-    drawing, which is the worst case and exaggerates the cost of triangles. Numbers from
-    ordinary laptops and phones would say whether items 2 and 4 matter to anyone.
+25. **Weaker graphics in the measurements.** Measured so far on the two ends: software
+    drawing (no card at all) and a fast desktop card (below). Numbers from an ordinary
+    laptop and a phone would say whether items 2 and 4 matter to anyone.
 26. **A rebuild that gives the same bytes.** It does not today [measured 2026-11-21, a
     full rebuild against the stored data]: of 83 part meshes 14 came out a few triangles
     different (one body 10,637 points stored, 10,638 rebuilt), because Manifold's results
