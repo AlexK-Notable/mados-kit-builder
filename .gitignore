@@ -10,3 +10,4 @@ __pycache__/
 # Left behind by the browser checks
 .playwright-cli/
 mados-build-*.zip
+*.egg-info/
