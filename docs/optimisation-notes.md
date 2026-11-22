@@ -104,6 +104,16 @@ would cost. "Done" entries stay here with the numbers they produced.
   `tools/bench_scene.mjs`: a pointer move during a drag costs 1 to 2.5 ms up to 600 parts,
   and the work after a change 26 ms at 240 parts and 72 ms at 600. Drawing, not this, is
   what a person waits for in a big build, so the two items stay open with these numbers.
+- **Slivers cleared from the drawn shapes** (2026-11-21, `catalogue.light`). 17 % of all
+  drawn triangles had an edge under 0.01 mm, nearly half of those on cover plates.
+  Manifold's simplify does not join triangles across the pieces a shape was cut and
+  joined from, so a 20 x 40 mm cover was drawn with 20,026 triangles; told to forget its
+  pieces first (`as_original`) it needs 4,032 and looks the same close up, without the
+  faint speckles the slivers made. Over the 124 drawn shapes: 1.22 million triangles to
+  0.90 million, 2.37 MB to 1.89 MB, nothing moved by more than 0.028 mm. Seven shapes
+  (three nuts, four twist sections) would have moved 0.036 to 0.196 mm and are left as
+  they were. Blocks hardly change (23,238 to 22,094). Tolerances compared by eye: 0.01 mm
+  shows nothing, 0.02 begins to change a cover's sockets.
 - **Tests on every push** (2026-11-21). The app's tests run on GitHub for every push and
   pull request. The browser checks still run by hand.
 
@@ -118,20 +128,12 @@ Ordered roughly by what they would buy for the effort.
    the same. Today they are merged into one mesh per part. three.js can draw one section
    many times (`InstancedMesh`), which matters once a build has hundreds of parts.
 3. *Done: see above.*
-4. **Lighter display meshes.** Two parts to this.
-   *Slivers on covers.* 17 % of all drawn triangles (203,000 of 1.22 million) have an
-   edge under 0.01 mm, nearly all on cover sections, wrap-cover panels, twist sections and
-   the 40 mm cube. Manifold's simplify leaves them when it runs on a shape still carrying
-   the pieces it was cut from; run again on the bare points and triangles at 0.005 mm it
-   takes the catalogue to 0.90 million (26 % fewer), a cover section from 9,500 to 2,700,
-   and moves nothing by more than 0.006 mm [measured on 12 parts]. Next to be done; needs
-   a rebuild of the data.
-   *Less detail where it cannot be seen.* Blocks and the other parts are already as light
-   as simplifying makes them without showing: letting a shape stray 0.1 mm removes about
-   30 % of its triangles and 0.2 mm about 58 %, and both show up close on the embossed
-   numbers and joint edges. A second, coarser shape for a part that is small on screen
-   would get that saving without the cost. The 40 mm cube is drawn with 171,000 triangles,
-   more than any other part.
+4. **Less detail where it cannot be seen.** Drawn shapes are as light as simplifying
+   makes them without showing (see "Slivers cleared" above): letting a shape stray 0.1 mm
+   removes about 30 % more of its triangles and 0.2 mm about 58 %, and both show up close
+   on the embossed numbers and joint edges. A second, coarser shape for a part that is
+   small on screen would get that saving without the cost. The 40 mm cube is drawn with
+   106,000 triangles, more than any other part.
 5. **A standard mesh format.** `.mkm` is home-made. glTF with meshopt compression gets a
    similar ratio, three.js reads it natively, and other tools can open it. Worth it only
    if something else needs to read the files.

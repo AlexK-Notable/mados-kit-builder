@@ -173,7 +173,7 @@ def keep(section):
         if abs(tile["volume_mm3"] - volume) < 3 and apart(shape, shapes[i]) < APART_MAX:
             return i
     i = len(tiles)
-    light = section.simplify(A.DISPLAY_TOLERANCE)
+    light = A.light(section)
     assert abs(light.volume() - volume) < 0.01 * volume
     tile = {"volume_mm3": round(float(volume), 2)}
     tile["print"], tile["print_triangles"] = A.write_mesh(section, OUT, f"tiles/s{i:03d}.mkm")

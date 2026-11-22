@@ -97,6 +97,36 @@ def write_mesh(man, out_dir, rel):
 
 
 DISPLAY_TOLERANCE = 0.05     # mm a display mesh may stray from the print mesh [measured: 89k -> 22k triangles on a 40 mm block, volume within 1 mm3]
+SLIVER_TOLERANCE = 0.01      # mm of clean-up on a display mesh after that [measured 2026-11-21: a 20 x 40 mm cover goes from 20,026
+                             #  triangles to about 4,500 and looks the same close up; at 0.02 its sockets begin to change shape]
+
+
+SLIVER_DRIFT_MAX = 0.03      # mm the clean-up may move a surface; past that the mesh is left as it was
+                             #  [measured 2026-11-21 over the 124 drawn meshes: 117 move 0.028 at most; three nuts and four
+                             #   twist sections would move 0.036 to 0.196 and are left]
+
+
+def apart(a, b, samples=30000):
+    """How far the surfaces of two Manifolds lie apart at most (mm), over points scattered on
+    both and their corners."""
+    import trimesh
+    worst = 0.0
+    with np.errstate(invalid="ignore", divide="ignore"):
+        for one, other in ((M.to_trimesh(a), M.to_trimesh(b)), (M.to_trimesh(b), M.to_trimesh(a))):
+            points = np.vstack([trimesh.sample.sample_surface(one, samples, seed=1)[0], one.vertices])
+            worst = max(worst, float(np.nanmax(trimesh.proximity.closest_point(other, points)[1])))
+    return worst
+
+
+def light(man):
+    """The mesh a part is drawn with.  Manifold's simplify does not join triangles across
+    the pieces a shape was cut and joined from, which left a cover with four times the
+    triangles it needs, most of them slivers too thin to see.  So the shape is simplified
+    as it comes, then told to forget its pieces (as_original) and cleared of slivers,
+    unless that would move it further than SLIVER_DRIFT_MAX."""
+    drawn = man.simplify(DISPLAY_TOLERANCE)
+    cleared = drawn.as_original().simplify(SLIVER_TOLERANCE)
+    return cleared if apart(drawn, cleared) <= SLIVER_DRIFT_MAX else drawn
 
 
 PRINT_TOLERANCE = 0.003      # mm of clean-up on a print mesh [measured: removes the cover's 112 sliver triangles, changes a twist block's volume by 0.04 mm3]
@@ -131,9 +161,9 @@ def export_part(part, label, category, note, out_dir, print_mesh=None, folder=""
     has_joints = any(b["ports"] for b in part["bodies"])
     entry = describe(part, label, category, f"{note} It has {joints_in_words(part)}." if category != "Custom" and has_joints else note)
     for body, described in zip(part["bodies"], entry["bodies"]):
-        light = body["mesh"].simplify(DISPLAY_TOLERANCE)
-        assert abs(light.volume() - body["mesh"].volume()) < 0.01 * body["mesh"].volume(), part["name"]
-        described["mesh"], described["triangles"] = write_mesh(light, out_dir, f"{folder}meshes/{part['name']}__{body['name']}.mkm")
+        drawn = light(body["mesh"])
+        assert abs(drawn.volume() - body["mesh"].volume()) < 0.01 * body["mesh"].volume(), part["name"]
+        described["mesh"], described["triangles"] = write_mesh(drawn, out_dir, f"{folder}meshes/{part['name']}__{body['name']}.mkm")
     whole, filled = tidy(print_mesh if print_mesh is not None else P.mesh_of(part))
     rel, triangles = write_mesh(whole, out_dir, f"{folder}print/{part['name']}.mkm")
     entry["print"] = {"mesh": rel, "triangles": triangles,
