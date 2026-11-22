@@ -67,7 +67,9 @@ a finger on it, to pick it up.
 |---|---|
 | ![The builder in dark colours with a hinge selected](docs/dark.png) | ![The builder on a phone-sized screen](docs/phone.png) |
 
-The list holds all 63 of the author's parts under his own names and numbers. Blocks,
+The list holds all 63 of the author's parts under his own names and numbers, and seven
+parts of this builder's own making that his range does not have (a 40 mm cube of four
+blocks in one piece, three wrap covers and three hinges at other lengths). Blocks,
 twist blocks, double twist blocks and covers each have one card with a size stepper: at a
 size the author makes it is his part, and at any other size (blocks to 300 mm, covers to
 200 x 300 mm) the builder puts the part together itself from 20 mm sections cut from the
@@ -127,7 +129,7 @@ and socket shapes as his parts.
 
 | | |
 |---|---|
-| `app/` | the builder: `kit.js` (the joint rule), `scene.js` (the build), `app.js` (the interface), `families.js` (parts at any size), `mesh.js` and `solid.js` (reading meshes, joining sections for printing), `share.js` (builds in links) |
+| `app/` | the builder: `kit.js` (the joint rule), `scene.js` (the build), `app.js` (the interface), `families.js` (parts at any size), `mesh.js` and `solid.js` (reading meshes, joining sections for printing), `stl.js` and `zip.js` (writing the download), `share.js` (builds in links) |
 | `app/data/` | the built catalogue (about 17 MB): part pictures, meshes in a compact form, the shared sections, and where every plug and socket is |
 | `app/examples/` | the example builds the Build menu offers |
 | `serve.py` | local launcher, and parts made to order |

@@ -3,3 +3,4 @@ build123d
 manifold3d
 trimesh
 numpy
+rtree
