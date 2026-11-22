@@ -1,0 +1,13 @@
+# Official MADOS files (CC0) are downloaded, not committed: tools/fetch_upstream.py
+upstream/MADOS-*
+# Parts made to order while the app runs
+app/data/custom/
+out/
+.venv/
+__pycache__/
+*.pyc
+*.log
+# Left behind by the browser checks
+.playwright-cli/
+mados-build-*.zip
+*.egg-info/

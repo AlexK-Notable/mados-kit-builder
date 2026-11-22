@@ -1,0 +1,70 @@
+[
+ {
+  "file": "first-joints.json",
+  "title": "First joints",
+  "about": "The three everyday joints: a twist block, a snap-on cover and a threaded grub joiner.",
+  "notes": [
+   {
+    "text": "The twist block: its four plugs are pushed into the block below and turned to lock.",
+    "item": 1
+   },
+   {
+    "text": "The cover: it snaps onto the top of the twist block.",
+    "item": 2
+   },
+   {
+    "text": "The grub joiner: a threaded pin, half in each of the two plain blocks. Choose this note to see it through them.",
+    "item": 3
+   }
+  ]
+ },
+ {
+  "file": "frame.json",
+  "title": "Frame",
+  "about": "A closed frame: two posts on a base, and a bar across the top held by a joiner in each post.",
+  "notes": [
+   {
+    "text": "The posts are twist blocks, locked into the base.",
+    "item": 1
+   },
+   {
+    "text": "A grub joiner is screwed into the top of each post.",
+    "item": 3
+   },
+   {
+    "text": "The top bar lies across both joiners. Hold a bar near one of them and it takes both.",
+    "item": 5
+   }
+  ]
+ },
+ {
+  "file": "frame-corner.json",
+  "title": "Frame corner",
+  "about": "Three long twist blocks meeting in a corner cube, stiffened by two corner braces.",
+  "notes": [
+   {
+    "text": "The corner cube: a twist block locks into each of three of its faces.",
+    "item": 0
+   },
+   {
+    "text": "A corner brace: it plugs into two arms at once and keeps them square.",
+    "item": 4
+   }
+  ]
+ },
+ {
+  "file": "hinge.json",
+  "title": "Hinge",
+  "about": "Two blocks joined by a hinge that swings.",
+  "notes": [
+   {
+    "text": "The hinge: with it selected, press the Swing buttons that appear beside the build.",
+    "item": 1
+   },
+   {
+    "text": "The block on the hinge's free leaf swings with it, and so does the cover on that block.",
+    "item": 2
+   }
+  ]
+ }
+]

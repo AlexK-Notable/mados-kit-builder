@@ -1,0 +1,123 @@
+# Working in this repository
+
+For coding agents, and for anyone who wants the short version of how the project is put
+together. `README.md` says what the builder does and how to use it; `CONTRIBUTING.md` says
+how to send a change; this file says how the code is arranged and what must stay true.
+
+## What this is
+
+A browser app for [MADOS](https://www.mados3d.com/), an open (CC0) system of 3D-printed
+building blocks. People drag parts into a scene, the parts snap together by the system's
+real joint rules, and the app tells them how many of each part to print.
+
+## The two halves
+
+- **Python knows geometry.** It reads the author's files, finds every plug and socket on
+  every part by probing the mesh with the author's own joint tools, makes parts at other
+  sizes, and writes everything the browser needs into `app/data/`.
+- **The browser knows only data.** `app/` is a static page with no build step. It reads
+  `app/data/catalog.json`, which says where each part's joints are and which 5 mm cubes it
+  fills, and decides snapping from that alone.
+
+The joint rule is therefore written twice: `src/mados_kit/joints.py` is the reference, checked against
+real meshes, and `app/kit.js` is what people run. `tests/app/vectors.json` holds answers
+computed by the Python side, and the JavaScript tests must reproduce them.
+
+## Where things are
+
+    app/                 the static page (rule 4 below)
+      kit.js             the joint rule: when two joints mate, which ways a part can sit on another
+      scene.js           the build: placed parts, joints, collisions, undo, saving and loading
+      families.js        parts at any size, put together from 20 mm sections
+      app.js             the interface
+      mesh.js solid.js stl.js zip.js    reading meshes, joining sections, writing the download
+      share.js           a whole build in a link
+      sw.js offline.js   the service worker: keeps what was fetched, so the builder works without a connection
+      vendor/            three.js and Manifold, as shipped by their authors
+      data/              generated: catalogue, meshes, sections, part pictures; every file but the catalogue is named by its content
+    src/mados_kit/       the Python package
+      generators.py      part generators
+      joints.py          the joint rule and joint detection
+      parts.py           parts as bodies, joints and moving joints; the joiner data set by test prints
+      catalogue.py       catalogue records
+      meshfile.py        the compact mesh format
+      store.py           how the files of app/data are named and kept
+      server.py          local launcher, and parts made to order
+      paths.py           where app/, app/data/ and upstream/ are
+    tests/app/           `node --test` suites for the page
+    tools/               data building, checks, measurement, pictures
+    examples/            example generated parts with their checks
+    docs/                README pictures, the icon, `optimisation-notes.md`
+    upstream/            the list of the author's files; the files are downloaded, not committed
+    serve.py             thin launcher for `mados_kit.server`, so nothing needs installing to run
+
+Scripts in `tools/` and `examples/` add `src/` to the path themselves, so they run from a
+plain checkout. `pip install -e .[cad]` also works and brings the CAD packages.
+
+## Commands
+
+    python3 serve.py                      # run it: http://127.0.0.1:8377/
+    node --test tests/app/*.test.mjs                 # JavaScript against the Python reference; seconds, no packages
+    python tools/check_kit.py             # the rule against real meshes; minutes, needs requirements.txt and the author's files
+    python tools/build_app_data.py [NAME...]   # rebuild app/data (about 15 minutes for everything)
+    python tools/build_tiles.py           # cut repeating parts into sections and check them (about 20 minutes)
+    python3 tools/publish.py _site        # the copy that goes on a web host (seconds, needs nothing)
+
+The interface checks and the README pictures run in a real browser; the commands are at
+the top of `tools/browser_smoke.js` and `tools/screenshots.js`. `tools/browser_offline.js`
+checks a published copy the same way: kept on the device, working with the connection
+cut, and changing to a newer version when asked.
+
+## What must stay true
+
+1. **Both copies of the joint rule agree.** A change to how parts mate goes into
+   `src/mados_kit/joints.py` and `app/kit.js` together, and `tools/build_app_data.py` rewrites
+   `vectors.json` so the tests compare against the new answers.
+2. **No guessed numbers.** Every dimension and threshold carries a note of where it came
+   from: `[measured]` with a date, the author's files, or a test print. If you cannot say
+   where a number came from, measure it (`tools/measure_step.py`, `tools/periodicity.py`).
+3. **The rule has to hold on real geometry.** `tools/check_kit.py` tests every placement
+   the rule allows as solid meshes, with controls that must fail. A new kind of joint gets
+   a check and a control there.
+4. **`app/` stays a plain static page.** No build step, no package manager, no network
+   calls except its own files. Libraries are vendored with their licences.
+5. **`app/data/` is generated.** Do not edit it by hand; change the code that writes it
+   and rebuild. Meshes and pictures carry ten digits of their content's SHA-256 in their
+   names (`src/mados_kit/store.py`), so a name never comes to mean something else and a
+   browser may keep such a file for good. Nothing else in `app/` may be treated that way.
+   The two readers of the mesh format, `meshfile.py` and `app/mesh.js`, change together.
+6. **The author's parts stay the author's.** They keep his names and part numbers, and a
+   download of one of his parts is his shape. Parts this project makes are labelled
+   "(generated)".
+7. **Words on screen are for beginners.** Plain sentences, no jargon, and when the builder
+   refuses something it says why and what would work instead.
+8. **Nothing personal in the repository.** No names, home paths, machine names or
+   accounts in code, comments, data or commit messages.
+9. **Pictures follow the interface.** After a visible change, retake the README pictures
+   (`tools/screenshots.js`) and update the README text.
+10. **Ideas for speed, size and steadiness** go in `docs/optimisation-notes.md`, done or
+    not.
+
+## Things that have already gone wrong once
+
+- manifold3d's `to_mesh()` is 32-bit. Use `to_mesh64()` with C-ordered `float64` and
+  `uint64` arrays when precision matters.
+- Sections are cut 1 mm past each 20 mm boundary (`CUT_OFF` in `tools/build_tiles.py`).
+  The author's blocks have faces exactly on the boundaries, and a cut there changes shape
+  when stored.
+- Two meshes are compared by the distance from one surface to the other, sampled densely.
+  Comparing corners alone, or volumes, gave wrong answers.
+- A family card in the part list prefers the author's part at sizes he makes, so asking
+  for `channel_40` shows his 40 mm block. Checks that need the generated one use
+  `madosApp.showPart(name)`.
+- Sockets on stepped or inset faces of nine of the author's parts are not detected yet.
+- The service worker has two ways of working (top of `app/sw.js`). A copy made with
+  `tools/publish.py` keeps the page's files as one checked set and changes version all at
+  once; `app/` served as it stands asks afresh every time. While developing, the second is
+  what runs, so an edit shows on the next reload.
+- A file added to `app/` that the page imports also goes in the `modulepreload` list in
+  `index.html`; `tests/app/shell.test.mjs` fails until it does.
+
+## Licence
+
+Everything here is CC0 1.0. Changes are accepted on the same terms.
