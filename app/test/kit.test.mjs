@@ -7,14 +7,15 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import * as kit from "../kit.js";
+import { PartBook } from "../families.js";
 
 const data = join(dirname(fileURLToPath(import.meta.url)), "..", "data");
 const catalog = JSON.parse(readFileSync(join(data, "catalog.json"), "utf8"));
 const vectors = JSON.parse(readFileSync(join(data, "vectors.json"), "utf8"));
-const parts = new Map(catalog.parts.map((p) => [p.name, p]));
+const parts = new PartBook(catalog);          // sizes a family makes are put together on asking
 
 test("the catalogue has parts with ports and occupancy", () => {
-  assert.ok(catalog.parts.length >= 75);
+  assert.ok(catalog.parts.length >= 63 && catalog.families.length >= 4);
   for (const p of catalog.parts) {
     assert.ok(p.bodies.length >= 1, p.name);
     if (p.kind !== "joiner") assert.ok(p.bodies.some((b) => b.ports.length > 0), `${p.name} has no ports`);

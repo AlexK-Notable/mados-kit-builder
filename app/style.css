@@ -80,6 +80,14 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 .card:hover { border-color: var(--accent); background: var(--accent-soft); }
 .card img { width: 100%; height: auto; aspect-ratio: 4 / 3; display: block; pointer-events: none; }
 .card span { display: block; font-size: 12px; line-height: 1.25; }
+.card { min-width: 0; }
+.steppers { margin-top: 4px; display: grid; gap: 2px; }
+.steppers div { display: flex; align-items: center; justify-content: center; gap: 2px; font-size: 11px; white-space: nowrap; }
+.steppers i { font-style: normal; color: var(--soft); font-size: 10px; }
+.steppers i:first-child:not(:empty) { margin-right: 1px; }
+.steppers b { min-width: 22px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.steppers button { width: 19px; height: 19px; flex: none; margin: 0 2px; padding: 0; line-height: 1; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--ink); cursor: pointer; }
+.steppers button:hover { border-color: var(--accent); }
 .card small { display: block; font-size: 10.5px; color: var(--soft); margin-top: 2px; font-variant-numeric: tabular-nums; }
 #list-foot { margin: 18px 4px 0; padding-top: 12px; border-top: 1px solid var(--line); color: var(--soft); font-size: 12px; line-height: 1.4; }
 #list-foot p { margin: 0 0 8px; }

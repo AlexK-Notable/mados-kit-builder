@@ -49,8 +49,23 @@ export function triangles({ points, index }) {
   return out;
 }
 
-export async function fetchTriangles(url) {
+export async function fetchMesh(url) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`${url}: ${response.status}`);
-  return triangles(await decode(await response.arrayBuffer()));
+  return decode(await response.arrayBuffer());
+}
+
+export const fetchTriangles = async (url) => triangles(await fetchMesh(url));
+
+// Sections side by side as one list of triangles: [{points, index, offset: [x, y, z]}].
+export function assembled(sections) {
+  const out = new Float32Array(sections.reduce((n, s) => n + s.index.length * 3, 0));
+  let o = 0;
+  for (const { points, index, offset } of sections) {
+    for (let i = 0; i < index.length; i++, o += 3) {
+      const p = index[i] * 3;
+      out[o] = points[p] + offset[0]; out[o + 1] = points[p + 1] + offset[1]; out[o + 2] = points[p + 2] + offset[2];
+    }
+  }
+  return out;
 }

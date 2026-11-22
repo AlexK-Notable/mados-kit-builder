@@ -40,7 +40,10 @@ async page => {
     await page.waitForTimeout(260);
     return during;
   };
+  // a card that stands for a family of sizes is first turned to the part that is wanted
+  const show = (name) => page.evaluate((n) => window.madosApp.showPart(n), name);
   const card = async (name) => {
+    await show(name);
     await page.locator(`.card[data-part="${name}"]`).scrollIntoViewIfNeeded();
     return app((n) => window.madosApp.card(n), name);
   };
@@ -197,6 +200,7 @@ async page => {
   await page.locator("#fit").focus();
   await page.keyboard.press("]");
   const picked = await app(() => window.madosApp.selected);
+  await show("MADOS-20AA");
   await page.locator('.card[data-part="MADOS-20AA"]').focus();
   await page.keyboard.press("Enter");
   await page.waitForTimeout(300);
@@ -225,12 +229,46 @@ async page => {
   const chosen = await app(() => { const a2 = window.madosApp; return a2.scene.partOf(a2.scene.get(a2.selected)).name; });
   check("an example lists what to look at, and a note selects its part", noteCount === 3 && chosen === "MADOS-20GE", `${noteCount} ${chosen}`);
 
+  // ---- one card stands for every size of a block, and sizes nobody listed are made on the spot
+  await reset();
+  await page.fill("#search", "");
+  await show("MADOS-20BA");
+  const blockCard = page.locator('.card[data-family="block"]');
+  const plus = blockCard.locator(".steppers button").nth(1);
+  const sizes = [];
+  for (let i = 0; i < 6; i++) { await plus.click(); sizes.push(await blockCard.getAttribute("data-part")); }
+  check("stepping a block's length goes through the author's sizes and on to made ones",
+    sizes.join() === "MADOS-20BB,MADOS-20BC,MADOS-20BD,MADOS-20BE,channel_120,channel_140", sizes.join());
+  const sized = async (q) => { await page.fill("#search", q); return app(() => [...document.querySelectorAll(".card[data-family]:not([hidden])")].map((c) => c.dataset.part)); };
+  const long = await sized("220mm"), byNumber = await sized("20BD"), plate = await sized("40x100");
+  await page.fill("#search", "");
+  check("the search turns a size card to the size or part number typed",
+    long.includes("channel_220") && long.includes("twist_220_s3") && byNumber.join() === "MADOS-20BD" && plate.join() === "cover_40x100_s4", `${long} / ${byNumber} / ${plate}`);
+  // a made block takes a made twist block, and both come out of the download as closed print files of the right size
+  await drag(await card("channel_140"), await at([0, 0, 0]));
+  d = await drag(await card("twist_60_s3"), await at([0, 0, 20]));
+  s = await state();
+  const made = await app(async () => {
+    const files = await window.madosApp.printFiles({ preview: false });
+    return files.filter((f) => f.name.endsWith(".stl")).map((f) => {
+      const view = new DataView(f.data instanceof ArrayBuffer ? f.data : f.data.buffer);
+      const n = view.getUint32(80, true);
+      let lo = Infinity, hi = -Infinity;
+      for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) { const y = view.getFloat32(84 + i * 50 + 12 + k * 12 + 4, true); lo = Math.min(lo, y); hi = Math.max(hi, y); }
+      return `${f.name.split("/").pop()} ${Math.round((hi - lo) * 10) / 10}`;
+    }).sort().join("; ");
+  });
+  check("a build of made sizes joins and downloads as print files of those sizes", s.joints === 4 && s.pieces === 1 && made === "1x_channel_140.stl 140; 1x_twist_60_s3.stl 63.6", `${s.joints} ${made}`);
+  await reset();
+
   // ---- what a newcomer tries without reading anything
   await reset();
+  await show("MADOS-20BA");
   await page.click('.card[data-part="MADOS-20BA"]');
   await page.waitForTimeout(400);
   s = await state();
   check("a click on a part in the list stands one on the floor", s.items.length === 1 && s.items[0].startsWith("MADOS-20BA@"), s.items.join(" "));
+  await show("MADOS-20BA");
   await page.click('.card[data-part="MADOS-20BA"]');
   await page.waitForTimeout(400);
   s = await state();

@@ -8,6 +8,8 @@ import * as kit from "./kit.js";
 import { Scene } from "./scene.js";
 import * as stl from "./stl.js";
 import * as meshFile from "./mesh.js";
+import * as families from "./families.js";
+import { joined } from "./solid.js";
 import { makeZip } from "./zip.js";
 import * as share from "./share.js";
 
@@ -166,8 +168,25 @@ const gramsText = (g) => (g < 10 ? `${g.toFixed(1)} g` : `${Math.round(g)} g`);
 // ---------------------------------------------------------------- part shapes, fetched when wanted
 const ready = (part) => part.bodies.every((_, k) => geometry.has(`${part.name}:${k}`));
 
+// A section is shared by many parts, so each is fetched once.
+const sectionJobs = new Map();
+function section(rel) {
+  if (!sectionJobs.has(rel)) sectionJobs.set(rel, meshFile.fetchMesh(`data/${rel}`).catch((error) => { sectionJobs.delete(rel); throw error; }));
+  return sectionJobs.get(rel);
+}
+const sectionsOf = (tiles, which) => Promise.all(tiles.map(async ([i, offset]) => ({ ...(await section(catalog.tiles[i][which])), offset })));
+
+// The triangles a body is drawn with: its own mesh, or its sections side by side.
+const bodyShape = async (body) => (body.mesh ? meshFile.fetchTriangles(`data/${body.mesh}`) : meshFile.assembled(await sectionsOf(body.tiles, "mesh")));
+
+// The triangles a part is printed from.  Sections are joined into one closed solid.
+async function printShape(part) {
+  if (part.print.mesh) return meshFile.fetchTriangles(`data/${part.print.mesh}`);
+  return joined(await sectionsOf(part.print.tiles, "print"));
+}
+
 function loadMeshes(part) {
-  return Promise.all(part.bodies.map((body, k) => meshFile.fetchTriangles(`data/${body.mesh}`).then((positions) => {
+  return Promise.all(part.bodies.map((body, k) => bodyShape(body).then((positions) => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     g.computeVertexNormals();
@@ -1322,13 +1341,23 @@ function makeCard(part, recent = false) {
   image.loading = "lazy";
   image.width = 240; image.height = 180;
   image.addEventListener("error", () => {
-    ensureMeshes(part).then(() => { image.src = renderThumbnail(part); }, () => {});
-  }, { once: true });
-  image.src = thumbOf(part);
+    // no ready-made picture (a size made on the spot): draw one once its shape is here
+    const wanted = part;
+    if (image.dataset.drawn === wanted.name) return;
+    ensureMeshes(wanted).then(() => { if (part === wanted) { image.dataset.drawn = wanted.name; image.src = renderThumbnail(wanted); } }, () => {});
+  });
   const label = document.createElement("span");
-  label.textContent = part.label;
   const size = document.createElement("small");
-  size.textContent = `${sizeOf(part).map((v) => Math.round(v)).join(" × ")} mm`;
+  // A card for a family of sizes shows a different part when its size is changed.
+  card.show = (next) => {
+    part = next;
+    if (recent) card.dataset.recent = part.name; else card.dataset.part = part.name;
+    card.setAttribute("aria-label", `${part.label}. Press Enter to stand one on the floor, or to join one onto the selected part.`);
+    image.src = thumbOf(part);
+    label.textContent = part.label;
+    size.textContent = `${sizeOf(part).map((v) => Math.round(v)).join(" × ")} mm`;
+  };
+  card.show(part);
   card.append(image, label, size);
   card.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || drag || press) return;
@@ -1389,6 +1418,81 @@ function addCard(part) {
 }
 
 // The parts used most recently, repeated at the top of the list.
+// One card for every size of a kind of part: steppers under the picture change which size
+// the card stands for.  Where the author makes that size the card is his part; otherwise
+// the size is put together from the kind's sections.
+function addFamilyCard(family) {
+  const official = Object.keys(family.official ?? {}).map((key) => key.split("x").map(Number));
+  const lowest = (k) => Math.min(family.params[k].min, ...official.map((s) => s[k]));
+  const read = () => { try { return JSON.parse(store.get(`${STORE}-size-${family.id}`) ?? "null"); } catch { return null; } };
+  const fits = (s) => s && family.params.every((p, k) => Number.isInteger(s[p.key]) && s[p.key] >= lowest(k) && s[p.key] <= p.max && s[p.key] % p.step === 0);
+  const exists = (s) => Boolean(family.official?.[families.sizeKey(family, s)]) || families.allowed(family, s);
+  let size = read();
+  if (!fits(size) || !exists(size)) size = Object.fromEntries(family.params.map((p, k) => [p.key, official.length ? official.reduce((a, b) => (a[k] <= b[k] ? a : b))[k] : p.min]));
+  if (!exists(size)) size = Object.fromEntries(family.params.map((p) => [p.key, p.min]));
+  const partAt = (s) => scene.parts.get(families.nameAt(family, s));
+  const card = addCard(partAt(size));
+  card.dataset.family = family.id;
+  card.classList.add("sized");
+  const steppers = document.createElement("div");
+  steppers.className = "steppers";
+  const values = [];
+  const set = (next, keep = true) => {
+    if (!fits(next) || !exists(next)) return false;
+    size = next;
+    card.show(partAt(size));
+    family.params.forEach((p, k) => { values[k].textContent = `${size[p.key]}`; });
+    if (keep) store.set(`${STORE}-size-${family.id}`, JSON.stringify(size));
+    return true;
+  };
+  family.params.forEach((p, k) => {
+    const row = document.createElement("div");
+    const name = document.createElement("i");
+    name.textContent = family.params.length > 1 ? p.label[0] : "";
+    name.title = `${p.label}, mm`;
+    const unit = document.createElement("i");
+    unit.textContent = "mm";
+    const value = document.createElement("b");
+    values.push(value);
+    const step = (by, text, title) => {
+      const button = document.createElement("button");
+      button.textContent = text;
+      button.title = title;
+      button.setAttribute("aria-label", `${title} of ${family.label.replace(/ \{.*$/, "").toLowerCase()}`);
+      button.addEventListener("pointerdown", (event) => event.stopPropagation());
+      button.addEventListener("keydown", (event) => event.stopPropagation());
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        // step to the next size that exists: a kind may have no generated 20 mm, only the author's
+        for (let v = size[p.key] + by; v >= lowest(k) && v <= p.max; v += by) if (set({ ...size, [p.key]: v })) break;
+        filterCards();
+      });
+      return button;
+    };
+    row.title = `${p.label}, in steps of ${p.step} mm`;
+    row.append(name, step(-p.step, "−", `Less ${p.label.toLowerCase()}`), value, unit, step(p.step, "+", `More ${p.label.toLowerCase()}`));
+    steppers.append(row);
+  });
+  card.append(steppers);
+  set(size, false);
+  // every size the author makes, for the search to find by name or number
+  card.members = () => Object.entries(family.official ?? {}).map(([key, name]) => ({ part: scene.parts.get(name), size: Object.fromEntries(family.params.map((p, k) => [p.key, Number(key.split("x")[k])])) }));
+  card.setSize = set;
+  card.sizeFor = (words) => {
+    // "120mm" or "40x60" typed into the search picks that size
+    for (const w of words) {
+      const m = /^(\d+)(?:x(\d+))?(?:mm)?$/.exec(w);
+      if (!m) continue;
+      const nums = [m[1], m[2]].filter(Boolean).map(Number);
+      const wanted = family.params.length === nums.length ? Object.fromEntries(family.params.map((p, k) => [p.key, nums[k]]))
+        : family.params.length === 1 || nums.length !== 1 ? null : { ...size, [family.params.at(-1).key]: nums[0] };
+      if (wanted && fits(wanted) && exists(wanted)) return wanted;
+    }
+    return null;
+  };
+  return card;
+}
+
 function rememberRecent(name) {
   let names = [];
   try { names = JSON.parse(store.get(`${STORE}-recent`) ?? "[]"); } catch { /* start again */ }
@@ -1444,6 +1548,13 @@ function filterCards() {
   const words = typed.toLowerCase().split(/\s+/).filter(Boolean);
   // names first: descriptions are only searched when no part's name, number or kind matches
   const cards = [...document.querySelectorAll(".card[data-part]")];
+  // a card that stands for a family of sizes turns to the size that was asked for
+  for (const card of cards) {
+    if (!card.members || !words.length || matchesSearch(scene.parts.get(card.dataset.part), words, false)) continue;
+    const member = card.members().find((m) => matchesSearch(m.part, words, false));
+    const sized = member?.size ?? card.sizeFor(words);
+    if (sized) card.setSize(sized, false);
+  }
   const byName = cards.some((card) => matchesSearch(scene.parts.get(card.dataset.part), words, false));
   let shown = 0;
   for (const card of cards) {
@@ -1677,7 +1788,7 @@ async function printFiles({ preview = true } = {}) {
   const lines = [];
   for (const row of rows) {
     const part = row.part;
-    const shape = await meshFile.fetchTriangles(`data/${part.print.mesh}`);
+    const shape = await printShape(part);
     const data = stl.writeBinarySTL(scene.scale === 1 ? shape : stl.transformed(shape, null, scene.scale), part.label);
     const name = `${fineLayers(part) ? "print-fine-layers" : "print"}/${row.quantity}x_${row.name}.stl`;
     files.push({ name, data });
@@ -1890,10 +2001,19 @@ async function start() {
   try {
     // parts made to order live beside the launcher that made them; a plain web host has none
     const made = await fetch("api/custom");
-    if (made.ok) catalog.parts.push(...(await made.json()).parts);
+    // a size made to order before the page could make it itself is now the family's to make
+    if (made.ok) catalog.parts.push(...(await made.json()).parts.filter((p) => !families.fromName(catalog, p.name)));
   } catch { /* no made-to-order parts here */ }
   scene = new Scene(catalog);
-  for (const part of catalog.parts) addCard(part);
+  // a family's card stands for every size of it, the author's own sizes included
+  const inFamily = new Set((catalog.families ?? []).flatMap((family) => Object.values(family.official ?? {})));
+  const placed = new Set();
+  for (const part of catalog.parts) {
+    const family = (catalog.families ?? []).find((f) => !placed.has(f.id) && (f.category === part.category));
+    if (family && (inFamily.has(part.name) || !catalog.parts.some((p) => p.category === family.category && inFamily.has(p.name)))) { placed.add(family.id); addFamilyCard(family); }
+    if (!inFamily.has(part.name)) addCard(part);
+  }
+  for (const family of catalog.families ?? []) if (!placed.has(family.id)) addFamilyCard(family);
   drawRecent();
   resize();
   fetch("api/ping").then((r) => (r.ok ? r.json() : null)).then((info) => {
@@ -1940,6 +2060,19 @@ async function start() {
       const v = new THREE.Vector3(...point).project(camera);
       const rect = canvas.getBoundingClientRect();
       return [rect.left + ((v.x + 1) / 2) * rect.width, rect.top + ((1 - v.y) / 2) * rect.height];
+    },
+    // Turn a family's card to the size that is the named part, so the part has a card to press.
+    showPart(name) {
+      for (const card of document.querySelectorAll(".card[data-family]")) {
+        const member = card.members().find((m) => m.part.name === name);
+        const made = families.fromName(catalog, name);
+        const size = member?.size ?? (made && made.family.id === card.dataset.family ? made.size : null);
+        if (!size) continue;
+        card.setSize(size, false);
+        if (card.dataset.part !== name) card.show(scene.parts.get(name));     // a generated size the author also makes
+        return true;
+      }
+      return Boolean(document.querySelector(`.card[data-part="${CSS.escape(name)}"]`));
     },
     card(name) {
       const rect = document.querySelector(`.card[data-part="${CSS.escape(name)}"]`).getBoundingClientRect();

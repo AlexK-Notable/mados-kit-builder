@@ -4,6 +4,7 @@ one print mesh per part, a simplified display mesh per body, and the reference a
 JavaScript tests are checked against.
 
     python tools/build_app_data.py
+    python tools/build_tiles.py                     # then cut blocks, twist blocks and covers into shared sections
     ... build_app_data.py MADOS-20FM MADOS-20BB     # rebuild only these parts (about a minute)
 """
 import json
@@ -32,13 +33,17 @@ catalog = {
 # With part names as arguments, only those parts are rebuilt and put back into the existing
 # catalogue, and only the reference answers between them are redone.
 only = set(sys.argv[1:])
+TILED = {"MADOS-20BA", "MADOS-20BB", "MADOS-20BC", "MADOS-20BD", "MADOS-20BE", "MADOS-20AA", "MADOS-20AB", "MADOS-20AC",
+         "MADOS-20AD", "MADOS-20AE", "MADOS-20AI", "MADOS-20AT", "MADOS-20AU", "MADOS-20AV"}      # as in tools/build_tiles.py
 previous = json.load(open(os.path.join(OUT, "catalog.json"))) if only else None
 built = {}
 for label, category, note, make, print_mesh in A.catalogue():
     if only:
         # labels are reworded when a part is described, so an official part is found by its number
         code = re.search(r"\((20[A-Z]{2})\)$", label)
-        was = next(p for p in previous["parts"] if (p["name"] == f"MADOS-{code.group(1)}" if code else p["label"] == label))
+        was = next((p for p in previous["parts"] if (p["name"] == f"MADOS-{code.group(1)}" if code else p["label"] == label)), None)
+        if was is None:
+            continue                # a generated size its family now makes (tools/build_tiles.py); not kept one by one
         if was["name"] not in only:
             catalog["parts"].append(was)
             continue
@@ -50,6 +55,12 @@ for label, category, note, make, print_mesh in A.catalogue():
     vox = sum(len(b["voxels"]) for b in entry["bodies"])
     print(f"{part['name']}: {len(entry['bodies'])} bodies, {ports} ports, {vox} cubes, "
           f"{len(entry['joints'])} joints  [{time.time() - t0:.0f}s]", flush=True)
+if only:                                                # the sections and families tools/build_tiles.py made stay as they are
+    for key in ("tiles", "families", "section"):
+        if key in previous:
+            catalog[key] = previous[key]
+    if any("mesh" in entry["print"] and entry["name"] in TILED for _, entry in built.values()):
+        print("note: a part that is kept as sections was rebuilt whole; run tools/build_tiles.py to cut it again")
 json.dump(catalog, open(os.path.join(OUT, "catalog.json"), "w"))
 if not os.path.exists(os.path.join(OUT, "custom", "index.json")):       # parts made to order are added by serve.py
     os.makedirs(os.path.join(OUT, "custom"), exist_ok=True)

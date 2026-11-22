@@ -3,6 +3,7 @@
 // rendering; test/scene.test.mjs exercises it directly.
 
 import * as kit from "./kit.js";
+import { PartBook } from "./families.js";
 
 const GROUND_SLACK = 0.01;   // mm a part may dip below the ground before a placement is refused
 const CORE_SLACK = 0.5;        // mm two joiners may share before they count as crossing: end to end in one channel they only touch
@@ -23,7 +24,7 @@ const TIP_COST = 0.25;        // mm per degree it is tipped over from the way it
 export class Scene {
   constructor(catalog) {
     this.catalog = catalog;
-    this.parts = new Map(catalog.parts.map((p) => [p.name, p]));
+    this.parts = new PartBook(catalog);          // by name; sizes a family makes are put together when first asked for
     this.items = [];
     this.nextId = 1;
     this.scale = 1;

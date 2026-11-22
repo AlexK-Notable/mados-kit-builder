@@ -28,7 +28,7 @@ function closed({ points, index }) {
 }
 
 test("a part's print mesh reads back as a closed solid of the size and triangle count the catalogue gives", async () => {
-  for (const name of ["MADOS-20BA", "MADOS-20GE", "MADOS-20HK", "twist_40_s3", "cover_20x20_s4"]) {
+  for (const name of ["MADOS-20GE", "MADOS-20HK", "MADOS-20DH", "MADOS-20EA", "MADOS-20KG"]) {
     const part = catalog.parts.find((p) => p.name === name);
     const got = await read(part.print.mesh);
     assert.equal(got.index.length / 3, part.print.triangles, `${name}: triangles`);
@@ -40,7 +40,7 @@ test("a part's print mesh reads back as a closed solid of the size and triangle 
 });
 
 test("a mesh survives being written as an STL for printing", async () => {
-  const part = catalog.parts.find((p) => p.name === "MADOS-20BA");
+  const part = catalog.parts.find((p) => p.name === "MADOS-20GE");
   const flat = mesh.triangles(await read(part.print.mesh));
   const back = stl.parseBinarySTL(stl.writeBinarySTL(flat, "test"));
   assert.equal(back.length, part.print.triangles * 9);

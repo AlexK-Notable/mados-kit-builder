@@ -67,8 +67,11 @@ a finger on it, to pick it up.
 |---|---|
 | ![The builder in dark colours with a hinge selected](docs/dark.png) | ![The builder on a phone-sized screen](docs/phone.png) |
 
-The list holds all 63 of the author's parts under his own names and numbers, and 20
-generated sizes he does not publish. Four kinds of joint are modelled:
+The list holds all 63 of the author's parts under his own names and numbers. Blocks,
+twist blocks, double twist blocks and covers each have one card with a size stepper: at a
+size the author makes it is his part, and at any other size (blocks to 300 mm, covers to
+200 x 300 mm) the builder puts the part together itself from 20 mm sections cut from the
+official joint shapes. Four kinds of joint are modelled:
 
 - the plugs and sockets on faces;
 - the threaded opening in the middle of each face tile. The grub joiner screws through
@@ -82,10 +85,10 @@ generated sizes he does not publish. Four kinds of joint are modelled:
 
 ## Parts made to order
 
-"Make a part in another size", under the list and in the Build menu, makes blocks, twist
-blocks, covers, wrap covers and hinges at lengths the list does not have. It needs the
-Python packages and the author's files; until both are there, the builder says which is
-missing:
+Blocks, twist blocks and covers of any size need nothing: the page makes them. Wrap
+covers and hinges at other lengths, and other plug strengths, are made by the launcher,
+which needs the Python packages and the author's files; until both are there, "Make a
+part in another size" says which is missing:
 
     python3 -m venv .venv
     .venv/bin/pip install -r requirements.txt
@@ -109,6 +112,9 @@ and socket shapes as his parts.
   are for are not part of the builder.
 - On a large plate a joiner's boss also fits where four tiles meet. The builder only
   offers the middles of tiles.
+- The author's blocks and twist blocks are kept as 20 mm sections, and a section that
+  two parts have in common is kept once. Put back together, a part matches the mesh made
+  from his file to within 0.03 mm, with its own embossed part number.
 - The builder does not check that a part can physically be pushed into place, only that
   it fits once there.
 - A part is accepted with only some of its plugs in a socket. In the test print a twist
@@ -121,14 +127,15 @@ and socket shapes as his parts.
 
 | | |
 |---|---|
-| `app/` | the builder: `kit.js` (the joint rule), `scene.js` (the build), `app.js` (the interface), `share.js` (builds in links) |
-| `app/data/` | the built catalogue: part pictures, display meshes, print STLs, and where every plug and socket is |
+| `app/` | the builder: `kit.js` (the joint rule), `scene.js` (the build), `app.js` (the interface), `families.js` (parts at any size), `mesh.js` and `solid.js` (reading meshes, joining sections for printing), `share.js` (builds in links) |
+| `app/data/` | the built catalogue (about 17 MB): part pictures, meshes in a compact form, the shared sections, and where every plug and socket is |
 | `app/examples/` | the example builds the Build menu offers |
 | `serve.py` | local launcher, and parts made to order |
 | `madoskit.py` | part generators: blocks, twist blocks, covers, wrap covers, hinges |
 | `kitlogic.py` | the joint rule in Python: where a part's plugs and sockets are, and when two parts mate |
 | `kitparts.py` | parts as bodies, ports and moving joints |
-| `appdata.py`, `tools/build_app_data.py` | turns parts into `app/data/` |
+| `appdata.py`, `meshfile.py`, `tools/build_app_data.py`, `tools/build_tiles.py` | turn parts into `app/data/`, then cut blocks, twist blocks and covers into shared sections |
+| `docs/optimisation-notes.md` | a running log of ways to make this faster, smaller and steadier |
 | `params.py`, `model.py` | ten example generated parts with their checks |
 | `tools/` | measurement and verification scripts, and the ones that make the part pictures (`make_thumbnails.js`) and the pictures on this page (`screenshots.js`) |
 | `upstream/` | the list of the author's published files; the files themselves are downloaded, not kept here |
@@ -137,7 +144,8 @@ and socket shapes as his parts.
 of the hinges and the 20AV block
 (`tools/fetch_upstream.py --recommended MADOS-20HA MADOS-20HB MADOS-20HC MADOS-20HD MADOS-20HK MADOS-20HM MADOS-20AV`),
 then run `tools/build_app_data.py` (about a quarter of an hour; `build_app_data.py NAME...`
-rebuilds only the named parts).
+rebuilds only the named parts) and `tools/build_tiles.py`, which cuts the repeating parts
+into sections and checks each against the mesh it was cut from.
 
 ## How it is checked
 
@@ -161,3 +169,5 @@ MADOS, its parts, part names and part descriptions are the work of
 
 [three.js](https://threejs.org/) draws the 3D view and is included in `app/vendor/`
 under the MIT licence (`app/vendor/LICENSE-three.txt`).
+[Manifold](https://github.com/elalish/manifold) joins sections into one solid for
+printing and is included in `app/vendor/manifold/` under the Apache 2.0 licence.
