@@ -142,7 +142,6 @@ td, th { padding: 3px 0; vertical-align: top; text-align: left; }
 #viewtools .views button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
 #viewtools .views button:last-child { border-radius: 0 6px 6px 0; }
 #viewtools .views button:hover { color: var(--ink); z-index: 1; }
-#meshload { position: absolute; left: 12px; top: 12px; font-size: 12px; color: var(--soft); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 3px 10px; z-index: 4; pointer-events: none; }
 #empty { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); width: min(430px, 86%); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 20px 22px; z-index: 3; }
 #empty h2 { margin: 0 0 8px; font-size: 18px; }
 #empty p { margin: 0 0 12px; line-height: 1.5; color: var(--soft); }
