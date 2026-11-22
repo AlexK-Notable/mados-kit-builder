@@ -13,11 +13,11 @@ import re
 import sys
 import time
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import appdata as A
-import kitlogic as K
-import kitparts as P
-import madoskit as M
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+from mados_kit import catalogue as A
+from mados_kit import joints as K
+from mados_kit import parts as P
+from mados_kit import generators as M
 
 OUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "data"))
 os.makedirs(OUT, exist_ok=True)

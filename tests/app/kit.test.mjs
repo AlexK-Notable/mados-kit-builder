@@ -1,15 +1,15 @@
 // Checks the app's connection logic against the Python reference's answers.
-//   node --test app/test/*.test.mjs
+//   node --test tests/app/*.test.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import * as kit from "../kit.js";
-import { PartBook } from "../families.js";
+import * as kit from "../../app/kit.js";
+import { PartBook } from "../../app/families.js";
 
-const data = join(dirname(fileURLToPath(import.meta.url)), "..", "data");
+const data = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "app", "data");
 const catalog = JSON.parse(readFileSync(join(data, "catalog.json"), "utf8"));
 const vectors = JSON.parse(readFileSync(join(data, "vectors.json"), "utf8"));
 const parts = new PartBook(catalog);          // sizes a family makes are put together on asking

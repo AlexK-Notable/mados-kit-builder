@@ -13,8 +13,8 @@ import os
 import re
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import madoskit as M
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+from mados_kit import generators as M
 
 EXTRA_MAX = 9.0     # mm3 generated-only [measured: 6.0 - 8.2, the debossed part number]
 MISSING_MAX = 2.0   # mm3 stock-only [measured: 0.02 - 1.44]

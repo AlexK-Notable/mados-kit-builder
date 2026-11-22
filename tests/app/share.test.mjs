@@ -5,10 +5,10 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { Scene } from "../scene.js";
-import { decode, encode } from "../share.js";
+import { Scene } from "../../app/scene.js";
+import { decode, encode } from "../../app/share.js";
 
-const app = join(dirname(fileURLToPath(import.meta.url)), "..");
+const app = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "app");
 const catalog = JSON.parse(readFileSync(join(app, "data", "catalog.json"), "utf8"));
 const examples = readdirSync(join(app, "examples")).filter((f) => f !== "index.json");
 

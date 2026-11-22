@@ -127,21 +127,29 @@ and socket shapes as his parts.
 
 ## What is in here
 
-| | |
-|---|---|
-| `app/` | the builder: `kit.js` (the joint rule), `scene.js` (the build), `app.js` (the interface), `families.js` (parts at any size), `mesh.js` and `solid.js` (reading meshes, joining sections for printing), `stl.js` and `zip.js` (writing the download), `share.js` (builds in links) |
-| `app/data/` | the built catalogue (about 17 MB): part pictures, meshes in a compact form, the shared sections, and where every plug and socket is |
-| `app/examples/` | the example builds the Build menu offers |
-| `serve.py` | local launcher, and parts made to order |
-| `madoskit.py` | part generators: blocks, twist blocks, covers, wrap covers, hinges |
-| `kitlogic.py` | the joint rule in Python: where a part's plugs and sockets are, and when two parts mate |
-| `kitparts.py` | parts as bodies, ports and moving joints |
-| `appdata.py`, `meshfile.py`, `tools/build_app_data.py`, `tools/build_tiles.py` | turn parts into `app/data/`, then cut blocks, twist blocks and covers into shared sections |
-| `docs/optimisation-notes.md` | a running log of ways to make this faster, smaller and steadier |
-| `AGENTS.md`, `CONTRIBUTING.md` | how the code is arranged and what it keeps to; how to report a wrong joint or send a change |
-| `params.py`, `model.py` | ten example generated parts with their checks |
-| `tools/` | measurement and verification scripts, and the ones that make the part pictures (`make_thumbnails.js`) and the pictures on this page (`screenshots.js`) |
-| `upstream/` | the list of the author's published files; the files themselves are downloaded, not kept here |
+    app/                 the builder: a static web page, served as it is
+      data/              generated: catalogue, meshes, shared sections, part pictures (about 17 MB)
+      examples/          the example builds the Build menu offers
+      vendor/            three.js and Manifold
+    src/mados_kit/       the Python side
+      generators.py      part generators: blocks, twist blocks, covers, wrap covers, hinges
+      joints.py          the joint rule, and finding the joints on a part
+      parts.py           parts as bodies, joints and moving joints
+      catalogue.py       a part's record, meshes and description for the app
+      meshfile.py        the compact mesh format
+      server.py          the local launcher, and parts made to order
+    tests/app/           the app's tests
+    tools/               scripts that build the data, check it, measure the author's files, and take the pictures
+    examples/            ten example generated parts with their checks
+    docs/                pictures for this page, and a running log of ways to make the builder faster and smaller
+    upstream/            the list of the author's files; the files themselves are downloaded, not kept here
+    serve.py             starts the builder: python3 serve.py
+
+In `app/`: `kit.js` is the joint rule, `scene.js` the build, `app.js` the interface,
+`families.js` parts at any size, `mesh.js` and `solid.js` read meshes and join sections
+for printing, `stl.js` and `zip.js` write the download, and `share.js` puts a build in a
+link. `AGENTS.md` says how the code is arranged and what it keeps to; `CONTRIBUTING.md`
+says how to report a wrong joint or send a change.
 
 `app/data/` is rebuilt from the author's files. Fetch them as above, plus the print files
 of the hinges and the 20AV block
@@ -157,7 +165,7 @@ into sections and checks each against the mesh it was cut from.
 - The joint rule is checked against the real meshes: every placement it allows must seat
   without the solids overlapping (`tools/check_kit.py`).
 - The JavaScript in the app must give the same answers as the Python reference
-  (`node --test app/test/*.test.mjs`).
+  (`node --test tests/app/*.test.mjs`).
 - The interface is driven with a real mouse and with touch, and what it does is compared
   with what it should do (`tools/browser_smoke.js`).
 

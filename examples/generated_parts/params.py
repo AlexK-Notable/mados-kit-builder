@@ -1,4 +1,4 @@
-"""MADOS kit: what to generate.  The joint numbers themselves live in madoskit.py, each with
+"""MADOS kit: what to generate.  The joint numbers themselves live in src/mados_kit/generators.py, each with
 a [measured] note; they were read from the official CC0 files in upstream/ and tested
 against stock parts (tools/)."""
 

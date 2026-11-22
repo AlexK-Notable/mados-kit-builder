@@ -14,10 +14,10 @@ import time
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import kitlogic as K
-import kitparts as P
-import madoskit as M
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+from mados_kit import joints as K
+from mados_kit import parts as P
+from mados_kit import generators as M
 
 CLICK_EACH = 0.4     # mm3 allowed per engaged joint at the strengths used here [measured: 0.04 - 0.18]
 SLACK = 0.3          # mm3 meshing noise

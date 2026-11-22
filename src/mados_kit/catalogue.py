@@ -13,9 +13,9 @@ import os
 import manifold3d
 import numpy as np
 
-import kitlogic as K
-import kitparts as P
-import madoskit as M
+from . import joints as K
+from . import parts as P
+from . import generators as M
 
 VOXEL = 5.0
 OCCUPIED_MIN = 0.08     # share of a cube that must be material; a 1 mm cover plate fills 0.2
@@ -81,10 +81,10 @@ def describe(part, label, category, note=""):
 
 
 def write_mesh(man, path):
-    """Write a mesh in the app's compact form (meshfile.py) and return its triangle count.
+    """Write a mesh in the app's compact form (src/mados_kit/meshfile.py) and return its triangle count.
     What was written is read back and must still be a closed solid."""
     import trimesh
-    import meshfile
+    from . import meshfile
     tm = M.to_trimesh(man)
     assert tm.is_watertight, f"{path} is not watertight"
     triangles, is_closed = meshfile.write(path, tm.vertices, tm.faces)
@@ -336,7 +336,7 @@ OFFICIAL_USE = {
     "MADOS-20FD": "A square with four M8 nuts 20 mm apart, for plates only. Each nut sits in the hollow on the pointed side "
                   "of a plate, flush, tying up to four plates together; M8 bolts through the plates hold it. It does not fit a block.",
 }
-# How the inner square joiners are used [the author's About page and kitparts.CHANNEL_JOINERS].
+# How the inner square joiners are used [the author's About page and parts.CHANNEL_JOINERS].
 IN_CHANNEL = "A bar that slides into the diamond-shaped opening in the middle of a block's face, corner up, and clicks in."
 OFFICIAL_USE.update({
     "MADOS-20FT": f"{IN_CHANNEL} Half goes into each of two blocks to join them; its cross holes take an M8 rod.",

@@ -1,5 +1,5 @@
-// The MADOS connection rules for the app.  A port of the Python reference (kitlogic.py,
-// kitparts.py); test/kit.test.mjs checks it gives the same answers on the reference's
+// The MADOS connection rules for the app.  A port of the Python reference (src/mados_kit/joints.py,
+// src/mados_kit/parts.py); tests/app/kit.test.mjs checks it gives the same answers on the reference's
 // test vectors.  No rendering here: plain arrays in, plain arrays out.
 //
 // A pose is {r, t}: r a 3x3 matrix as three rows, t a 3-vector.  Ports are
