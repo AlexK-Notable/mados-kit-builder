@@ -127,6 +127,22 @@ would cost. "Done" entries stay here with the numbers they produced.
   prepare, 0.25 s to zip, 19.7 MB to 7.8 MB. A published copy was kept on the device,
   its server stopped, and the page reloaded: it opened, drew, showed every picture and
   made print files; a newer version was offered and taken when asked.
+- **The build's questions answered from memory** (2026-11-22, was items 10 and 11,
+  `app/scene.js`). Every question the interface asks (which joints are engaged, which
+  parts make one piece, is anything floating) worked out the place of every joint of every
+  part again, several times a change, and finding a part by its number went through the
+  whole list. Now what is known about a part is kept until it moves, a whole-build answer
+  until anything moves, and the joints near the pointer are found in a grid of 50 mm
+  cells. Timed with `tools/bench_scene.mjs` at 600 parts: the work after a change 128 ms
+  to 5 ms, the start of a drag 81 to 8.5, a move of the pointer over a part 4.6 to 2.2,
+  over the floor 1.8 to 1.0. In Chrome at 864 parts a change is followed by 10.5 ms of
+  work where it was 86. No answer changes: the old and new code gave the same result in
+  26,601 comparisons over four example builds through moves, removals and additions, and
+  a test now holds the scene to the answers of one that remembers nothing.
+- **A view that takes a build of any size** (2026-11-22). The camera saw 6 m, zooming out
+  stopped at 4 m, the grid was 0.6 m across and the floor that catches shadows 2.4 m, so a
+  build a few metres across was cut off and stood on nothing. All four now follow the
+  build, and the grid moves under a build that has left the middle.
 - **Tests on every push** (2026-11-21). The app's tests run on GitHub for every push and
   pull request. The browser checks still run by hand.
 
@@ -162,12 +178,11 @@ Ordered roughly by what they would buy for the effort.
 ### Speed while building
 
 10. **Occupied cubes as numbers, not text.** Collision checks build sets of strings like
-    `"3,-2,7"` for every candidate placement (`kit.voxelKeys`, `Scene.fits`). Packing the
-    three numbers into one integer, or a bit set over the build's bounding box, removes
-    most of the garbage a drag makes. Likely the biggest win for big builds.
-11. **Remember what does not change during a drag.** `Scene.joints()`, `pieces()` and
-    `fixedPorts()` are worked out from scratch on every call, several times a refresh.
-    Cache them against a change counter.
+    `"3,-2,7"` (`kit.voxelKeys`). Each part's set is now worked out once and kept (see
+    "The build's questions" above), so what is left is joining those sets when a drag
+    starts: 5 ms at 600 parts. Packing the three numbers into one integer would shave
+    that; it touches the rule both halves share, for little.
+11. *Done: see above.*
 12. **Heavy work off the main thread.** Unpacking meshes, joining sections and writing
     the zip all run where the interface runs. A Web Worker would keep the page responsive
     while a large download is prepared.

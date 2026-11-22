@@ -87,7 +87,7 @@ export function mates(a, b) {
     && (ROUND.has(a.system) ? webFits(a, b) : parallel(a.d, b.d));
 }
 
-const posKey = (pos) => `${Math.round(pos[0] * 100)},${Math.round(pos[1] * 100)},${Math.round(pos[2] * 100)}`;
+export const posKey = (pos) => `${Math.round(pos[0] * 100)},${Math.round(pos[1] * 100)},${Math.round(pos[2] * 100)}`;
 
 // Index world ports by position for quick lookup.
 export function buildIndex(ports) {

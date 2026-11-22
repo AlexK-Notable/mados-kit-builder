@@ -111,6 +111,11 @@ cut, and changing to a newer version when asked.
   for `channel_40` shows his 40 mm block. Checks that need the generated one use
   `madosApp.showPart(name)`.
 - Sockets on stepped or inset faces of nine of the author's parts are not detected yet.
+- The build (`app/scene.js`) keeps what it has worked out about a part until the part is
+  given another pose or other angles. So a pose or a list of angles is replaced
+  (`item.pose = {...}`), never changed in place: a pose edited in place leaves every
+  answer about that part stale. What `joints()`, `context()` and their like hand back is
+  shared and must not be changed either.
 - The service worker has two ways of working (top of `app/sw.js`). A copy made with
   `tools/publish.py` keeps the page's files as one checked set and changes version all at
   once; `app/` served as it stands asks afresh every time. While developing, the second is

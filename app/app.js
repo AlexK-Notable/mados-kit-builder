@@ -73,6 +73,10 @@ const fill = new THREE.DirectionalLight(0xffffff, 0.6);
 fill.position.set(200, 60, 80);          // lights the faces the sun leaves in shade
 world.add(fill);
 let grid = null;
+let gridSize = 600;                      // mm across; it grows with the build (see layFloor)
+let gridAt = [0, 0];                     // where its middle is
+let reach = 0;                           // mm from the middle of the build to its furthest corner
+let middle = new THREE.Vector3(0, 0, 20);
 const selectionBox = new THREE.Box3Helper(new THREE.Box3(), 0x1f9d6c);
 selectionBox.visible = false;
 selectionBox.material.depthTest = false;       // seen through whatever is in front of it
@@ -92,13 +96,36 @@ let shadowsStale = true;
 const requestRender = () => { dirty = true; shadowsStale = true; };      // something moved
 const requestView = () => { dirty = true; };                             // only the view did
 
+function drawGrid() {
+  const theme = THEMES[document.documentElement.dataset.theme] ?? THEMES.light;
+  if (grid) { world.remove(grid); grid.geometry.dispose(); grid.material.dispose(); }
+  // 10 mm squares, as the parts are made on; past 4 m across, 20 mm (a block) so the lines stay apart on screen
+  grid = new THREE.GridHelper(gridSize, gridSize / (gridSize > 4000 ? 20 : 10), theme.gridMain, theme.gridFine);
+  grid.rotation.x = Math.PI / 2;
+  grid.position.set(gridAt[0], gridAt[1], 0);
+  world.add(grid);
+}
+
+// The grid and the floor that shadows fall on reach past the build on every side, however
+// far it spreads [they were 0.6 m and 2.4 m across whatever was built, so a build wider
+// than that stood on nothing and lost its shadows].
+function layFloor(box) {
+  const inside = !box || [0, 1].every((i) => box.min[i] > -250 && box.max[i] < 250);      // a build that fits the usual grid leaves it where it was
+  const at = inside ? [0, 0] : [0, 1].map((i) => Math.round((box.min[i] + box.max[i]) / 200) * 100);
+  const half = inside ? 0 : Math.max(box.max[0] - at[0], at[0] - box.min[0], box.max[1] - at[1], at[1] - box.min[1]);
+  const size = Math.max(600, 2 * Math.ceil((half + 150) / 100) * 100);
+  if (size !== gridSize) { gridSize = size; drawGrid(); }
+  gridAt = at;
+  grid.position.set(at[0], at[1], 0);
+  const floorScale = Math.max(1, (size + 1800) / 2400);
+  floor.scale.set(floorScale, floorScale, 1);
+  floor.position.set(at[0], at[1], 0.04);
+}
+
 function applyTheme() {
   const theme = THEMES[document.documentElement.dataset.theme] ?? THEMES.light;
   world.background = new THREE.Color(theme.background);
-  if (grid) { world.remove(grid); grid.geometry.dispose(); grid.material.dispose(); }
-  grid = new THREE.GridHelper(600, 60, theme.gridMain, theme.gridFine);
-  grid.rotation.x = Math.PI / 2;
-  world.add(grid);
+  drawGrid();
   $("theme-label").textContent = document.documentElement.dataset.theme === "dark" ? "Light colours" : "Dark colours";
   requestRender();
 }
@@ -302,7 +329,11 @@ function syncViews() {
     const box = scene.payloadBox([{ name: chosen.name, angles: chosen.angles, rel: chosen.pose }], kit.IDENTITY);
     selectionBox.box.set(new THREE.Vector3(...box.min).subScalar(0.6), new THREE.Vector3(...box.max).addScalar(0.6));
   }
-  aimSun(boundsOf());
+  const bounds = boundsOf();
+  reach = bounds ? bounds.radius : 0;
+  middle = bounds ? bounds.centre : new THREE.Vector3(0, 0, 20);
+  layFloor(bounds?.box ?? null);
+  aimSun(bounds);
   requestRender();
 }
 
@@ -403,10 +434,10 @@ function flyTo(target, position, glide = true) {
 
 // The box of some items (all of them by default), as {centre, radius}; null when there are none.
 function boundsOf(ids = null) {
-  const items = scene.items.filter((it) => !ids || ids.includes(it.id));
-  if (!items.length) return null;
-  const box = scene.payloadBox(items.map((it) => ({ name: it.name, angles: it.angles, rel: it.pose })), kit.IDENTITY);
+  const box = scene.boxOf(ids);
+  if (!box) return null;
   return {
+    box,
     centre: new THREE.Vector3(...[0, 1, 2].map((i) => (box.min[i] + box.max[i]) / 2)),
     radius: new THREE.Vector3(...kit.sub(box.max, box.min)).length() / 2,
   };
@@ -432,7 +463,6 @@ function setLens(fov, keepSize = true) {
     camera.position.sub(controls.target).multiplyScalar(scale).add(controls.target);
   }
   camera.fov = fov;
-  camera.far = fov === FLAT ? 40000 : 6000;
   camera.updateProjectionMatrix();
   controls.update();
   requestRender();
@@ -440,7 +470,7 @@ function setLens(fov, keepSize = true) {
 
 function zoom(factor) {
   const offset = camera.position.clone().sub(controls.target).multiplyScalar(factor);
-  if (offset.length() < 30 || offset.length() > (camera.fov === FLAT ? 30000 : 4000)) return;
+  if (offset.length() < 30 || offset.length() > Math.max(camera.fov === FLAT ? 30000 : 4000, reach * (camera.fov === FLAT ? 40 : 6))) return;
   flyTo(controls.target.clone(), controls.target.clone().add(offset));
 }
 
@@ -473,7 +503,22 @@ function frame(now) {
   draw();
 }
 
+// How far the camera sees is set from where it is and how big the build is, so that a
+// build of any size is drawn whole from any distance [it saw 6 m, which cut off a build a
+// few metres across].  The near limit moves out with it when the camera is well outside
+// the build, which keeps surfaces that lie close together from flickering far away.
+function setDepth() {
+  const away = camera.position.distanceTo(middle);
+  const far = Math.max(camera.fov === FLAT ? 40000 : 6000, (away + reach) * 1.2 + 1000, gridSize * 1.5);
+  const near = Math.max(2, Math.min((away - reach) * 0.5, far / 2000));
+  if (Math.abs(far - camera.far) > 1 || Math.abs(near - camera.near) > 0.01) {
+    camera.far = far; camera.near = near;
+    camera.updateProjectionMatrix();
+  }
+}
+
 function draw() {
+  setDepth();
   if (shadowsStale) { renderer.shadowMap.needsUpdate = true; shadowsStale = false; }
   renderer.render(world, camera);
 }

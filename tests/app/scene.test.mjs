@@ -351,3 +351,44 @@ test("a bar held near one of two joiners lies across both, and stands on one onl
   assert.ok(box.max[2] - box.min[2] < 21 && box.max[1] - box.min[1] > 79, "lying flat across the top");
   assert.equal(scene.pieces().length, 1);
 });
+
+// The scene keeps what it has worked out about each part and about the whole build until
+// something moves.  Whatever is done to a build, its answers must be those of a scene that
+// has just been loaded from the same build and remembers nothing.
+test("what the scene remembers is what a scene that remembers nothing works out", () => {
+  const example = JSON.parse(readFileSync(join(data, "..", "examples", "frame.json"), "utf8"));
+  const scene = new Scene(catalog);
+  for (let n = 0; n < 6; n++) for (const it of example.items) scene.add(it.name, { r: it.pose.r, t: kit.add(it.pose.t, [(n % 3) * 100, Math.floor(n / 3) * 100, 0]) }, it.angles);
+  let seed = 3;
+  const random = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const plain = (value) => JSON.parse(JSON.stringify(value));
+  const agree = (step) => {
+    const other = new Scene(catalog);
+    other.load(plain(scene.toJSON()));
+    const ids = new Map(scene.items.map((it, i) => [it.id, other.items[i].id]));       // loading numbers the items afresh
+    const named = (value) => JSON.stringify(value, (key, v) => (key === "item" ? ids.get(v) : v));
+    assert.equal(named(scene.joints()), JSON.stringify(other.joints()), `${step}: joints`);
+    assert.equal(JSON.stringify(scene.pieces().map((group) => group.map((id) => ids.get(id)))), JSON.stringify(other.pieces()), `${step}: pieces`);
+    assert.equal(named(scene.partlyJoined()), JSON.stringify(other.partlyJoined()), `${step}: partly joined`);
+    assert.equal(scene.floating().length, other.floating().length, `${step}: floating`);
+    assert.deepEqual(scene.extent(), other.extent(), `${step}: size`);
+    const mine = scene.context(), theirs = other.context();
+    assert.deepEqual([...mine.occupied].sort(), [...theirs.occupied].sort(), `${step}: cubes`);
+    assert.equal(named(mine.fixed), JSON.stringify(theirs.fixed), `${step}: ports`);
+    assert.equal(named([...mine.index.entries()]), JSON.stringify([...theirs.index.entries()]), `${step}: ports by place`);
+    const port = mine.fixed[Math.floor(random() * mine.fixed.length)];
+    const held = [{ name: "MADOS-20AA", angles: [], rel: kit.IDENTITY }];
+    const ask = (s, ctx, item) => s.choosePlacement(held, ctx, { hit: port.pos, normal: port.normal, viewDir: VIEW, prefR: R0, item });
+    assert.deepEqual(ask(scene, mine, port.item)?.pose, ask(other, theirs, ids.get(port.item))?.pose, `${step}: where a held part goes`);
+  };
+  agree("as built");
+  for (let step = 0; step < 30; step++) {
+    const item = scene.items[Math.floor(random() * scene.items.length)];
+    const kind = random();
+    if (kind < 0.5) item.pose = { r: item.pose.r, t: kit.add(item.pose.t, [Math.round(random() * 4 - 2) * 10, Math.round(random() * 4 - 2) * 10, Math.round(random() * 2) * 10]) };
+    else if (kind < 0.7) scene.remove(item.id);
+    else if (kind < 0.85) scene.add("MADOS-20AA", { r: R0, t: [Math.round(random() * 20) * 10, Math.round(random() * 20) * 10, 0] });
+    else scene.settle(scene.pieceOf(item.id));
+    agree(`after change ${step + 1}`);
+  }
+});

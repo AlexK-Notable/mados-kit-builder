@@ -21,6 +21,30 @@ const SPIN_COST = 0.05;       // mm per degree a placement is spun, in the plane
 const TIP_COST = 0.25;        // mm per degree it is tipped over from the way it is held: more, so that which side goes
                               // down is the holder's choice (F tips it) and a long block stays lying if it was held lying
 
+// The fixed ports inside a box, in the order they have in ctx.fixed.  They are sorted into
+// 50 mm cells the first time a drag asks, so that each move of the pointer looks at the
+// ports around it and not at every port in the build [measured 2026-11-22, 600 parts: one
+// move over a part went through all 24,000 ports five times, 5 ms].
+const CELL_MM = 50;
+const cellKey = (i, j, k) => ((i + 2048) * 4096 + (j + 2048)) * 4096 + (k + 2048);
+function portsIn(ctx, min, max) {
+  if (!ctx.cells) {
+    ctx.cells = new Map();
+    ctx.fixed.forEach((p, order) => {
+      const key = cellKey(...p.pos.map((v) => Math.floor(v / CELL_MM)));
+      const here = ctx.cells.get(key);
+      if (here) here.push({ p, order }); else ctx.cells.set(key, [{ p, order }]);
+    });
+  }
+  const lo = min.map((v) => Math.floor(v / CELL_MM)), hi = max.map((v) => Math.floor(v / CELL_MM));
+  const found = [];
+  for (let i = lo[0]; i <= hi[0]; i++) for (let j = lo[1]; j <= hi[1]; j++) for (let k = lo[2]; k <= hi[2]; k++) {
+    const here = ctx.cells.get(cellKey(i, j, k));
+    if (here) for (const entry of here) found.push(entry);
+  }
+  return found.sort((a, b) => a.order - b.order).map((entry) => entry.p);
+}
+
 export class Scene {
   constructor(catalog) {
     this.catalog = catalog;
@@ -29,10 +53,52 @@ export class Scene {
     this.nextId = 1;
     this.scale = 1;
     this.title = "";
+    this.kept = new WeakMap();       // item -> what has been worked out about it where it stands (see facts)
+    this.seen = { items: null, rows: [], answers: new Map() };     // the build as it was when its answers were worked out (see answer)
+    this.byId = { items: null, count: -1, map: new Map() };
   }
 
   // ---------------------------------------------------------------- basics
-  get(id) { return this.items.find((it) => it.id === id) ?? null; }
+  get(id) {
+    const by = this.byId;
+    if (by.items !== this.items || by.count !== this.items.length) {
+      by.items = this.items; by.count = this.items.length;
+      by.map = new Map(this.items.map((it) => [it.id, it]));
+    }
+    return by.map.get(id) ?? null;
+  }
+
+  // Working out where an item's joints and cubes are in the world is most of what the
+  // build's questions cost, and nearly all of it is asked again about parts that have not
+  // moved [measured 2026-11-22, 600 parts: the questions after a change took 128 ms, a
+  // drag took 81 ms to start].  So what is known about an item is kept until it is given
+  // another pose or other angles.  Poses and angles are replaced, never changed in place.
+  facts(item) {
+    let f = this.kept.get(item);
+    if (!f || f.pose !== item.pose || f.angles !== item.angles || f.name !== item.name) {
+      f = { pose: item.pose, angles: item.angles, name: item.name };
+      this.kept.set(item, f);
+    }
+    return f;
+  }
+
+  // An answer about the whole build, kept until an item is added, removed or moved.
+  // What comes back is shared: callers must not change it.
+  answer(name, work) {
+    const seen = this.seen, items = this.items;
+    let same = seen.items === items && seen.rows.length === items.length;
+    for (let i = 0; same && i < items.length; i++) {
+      const row = seen.rows[i], it = items[i];
+      same = row.it === it && row.pose === it.pose && row.angles === it.angles && row.name === it.name;
+    }
+    if (!same) {
+      seen.items = items;
+      seen.rows = items.map((it) => ({ it, pose: it.pose, angles: it.angles, name: it.name }));
+      seen.answers = new Map();
+    }
+    if (!seen.answers.has(name)) seen.answers.set(name, work());
+    return seen.answers.get(name);
+  }
   partOf(item) { return this.parts.get(item.name); }
 
   add(name, pose, angles = null) {
@@ -47,18 +113,64 @@ export class Scene {
 
   // World ports of an item, each tagged with its item id and body index.
   itemPorts(item) {
-    return kit.portsOf(this.partOf(item), item.pose, item.angles).map((p) => ({ ...p, item: item.id }));
+    const f = this.facts(item);
+    return f.ports ??= kit.portsOf(this.partOf(item), item.pose, item.angles).map((p) => ({ ...p, item: item.id }));
+  }
+
+  // The place of each of an item's ports as the index keys it, in the order of itemPorts.
+  portKeys(item) {
+    const f = this.facts(item);
+    return f.keys ??= this.itemPorts(item).map((p) => kit.posKey(p.pos));
+  }
+
+  // Ports by place, as kit.buildIndex gives, from the keys kept for each item.
+  indexOf(exclude = []) {
+    const index = new Map(), skip = new Set(exclude);
+    for (const it of this.items) {
+      if (skip.has(it.id)) continue;
+      const ports = this.itemPorts(it), keys = this.portKeys(it);
+      for (let i = 0; i < ports.length; i++) {
+        const here = index.get(keys[i]);
+        if (here) here.push(ports[i]); else index.set(keys[i], [ports[i]]);
+      }
+    }
+    return index;
   }
 
   fixedPorts(exclude = []) {
-    return this.items.filter((it) => !exclude.includes(it.id)).flatMap((it) => this.itemPorts(it));
+    const out = [], skip = new Set(exclude);
+    for (const it of this.items) if (!skip.has(it.id)) for (const p of this.itemPorts(it)) out.push(p);
+    return out;
   }
 
-  itemVoxels(item) { return kit.voxelKeys(this.partOf(item), item.pose, item.angles); }
+  itemVoxels(item) {
+    const f = this.facts(item);
+    return f.voxels ??= kit.voxelKeys(this.partOf(item), item.pose, item.angles);
+  }
+
+  // The box an item fills in the world: {min, max}.
+  itemBox(item) {
+    const f = this.facts(item);
+    return f.box ??= this.payloadBox([{ name: item.name, angles: item.angles, rel: item.pose }], kit.IDENTITY);
+  }
+
+  // The box of some items together (all of them by default): {min, max}, or null for none.
+  boxOf(ids = null) {
+    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+    const only = ids && new Set(ids);
+    let any = false;
+    for (const it of this.items) {
+      if (only && !only.has(it.id)) continue;
+      const b = this.itemBox(it);
+      for (let i = 0; i < 3; i++) { if (b.min[i] < min[i]) min[i] = b.min[i]; if (b.max[i] > max[i]) max[i] = b.max[i]; }
+      any = true;
+    }
+    return any ? { min, max } : null;
+  }
 
   occupied(exclude = []) {
-    const keys = new Set();
-    for (const it of this.items) if (!exclude.includes(it.id)) for (const k of this.itemVoxels(it)) keys.add(k);
+    const keys = new Set(), skip = new Set(exclude);
+    for (const it of this.items) if (!skip.has(it.id)) for (const k of this.itemVoxels(it)) keys.add(k);
     return keys;
   }
 
@@ -72,7 +184,8 @@ export class Scene {
   }
 
   cores(exclude = []) {
-    return this.items.filter((it) => !exclude.includes(it.id)).flatMap((it) => this.coresAt(it.name, it.pose));
+    const skip = new Set(exclude);
+    return this.items.filter((it) => !skip.has(it.id)).flatMap((it) => { const f = this.facts(it); return f.cores ??= this.coresAt(it.name, it.pose); });
   }
 
   payloadCores(payload, pose) {
@@ -88,7 +201,7 @@ export class Scene {
   // Everything a drag needs to know about the parts that stay put.
   context(exclude = []) {
     const fixed = this.fixedPorts(exclude);
-    return { fixed, index: kit.buildIndex(fixed), occupied: this.occupied(exclude), cores: this.cores(exclude) };
+    return { fixed, index: this.indexOf(exclude), occupied: this.occupied(exclude), cores: this.cores(exclude) };
   }
 
   // ---------------------------------------------------------------- payloads
@@ -166,7 +279,7 @@ export class Scene {
   // the most joints.
   choosePlacement(payload, ctx, { hit, normal, viewDir, prefR, item = null }) {
     if (!ctx.fixed.length) return null;
-    const near = (limit, test) => ctx.fixed
+    const near = (limit, test) => portsIn(ctx, hit.map((v) => v - limit), hit.map((v) => v + limit))
       .map((p) => ({ p, dist: kit.norm(kit.sub(p.pos, hit)) }))
       .filter((x) => x.dist < limit && test(x.p))
       .sort((a, b) => a.dist - b.dist);
@@ -296,7 +409,7 @@ export class Scene {
 
   // Joined groups that nothing holds up: no part of them rests on the floor.  -> [[ids]]
   floating() {
-    return this.pieces().filter((ids) => this.payloadBox(this.payloadOf(ids), this.get(ids[0]).pose).min[2] > 0.05);
+    return this.pieces().filter((ids) => this.boxOf(ids).min[2] > 0.05);
   }
 
   // Lower a joined group until it rests on the floor or on another part.  -> mm it dropped.
@@ -321,7 +434,7 @@ export class Scene {
     if (!ctx.fixed.length) return null;
     const box = this.payloadBox(payload, rough);
     const inReach = (p) => p.pos.every((v, i) => v > box.min[i] - maxShift - 5 && v < box.max[i] + maxShift + 5);
-    const targets = ctx.fixed.filter(inReach);
+    const targets = portsIn(ctx, box.min.map((v) => v - maxShift - 5), box.max.map((v) => v + maxShift + 5)).filter(inReach);
     if (!targets.length) return null;
     const far = (pose) => kit.norm(kit.sub(pose.t, rough.t)) <= maxShift
       && kit.rotationAngle(kit.matMul(pose.r, kit.transpose(rough.r))) <= maxTurn;
@@ -349,29 +462,36 @@ export class Scene {
 
   // How many joints an item has engaged with the rest of the build.
   engagedCount(ids) {
-    return this.joints().filter((j) => ids.includes(j.a.item) !== ids.includes(j.b.item)).length;
+    const among = new Set(ids);
+    return this.joints().filter((j) => among.has(j.a.item) !== among.has(j.b.item)).length;
   }
 
   // The ids of every item joined, directly or through others, to this one.
-  pieceOf(id) { return this.pieces().find((group) => group.includes(id)) ?? [id]; }
+  pieceOf(id) {
+    const where = this.answer("piece of each", () => { const map = new Map(); for (const group of this.pieces()) for (const member of group) map.set(member, group); return map; });
+    return where.get(id)?.slice() ?? [id];
+  }
 
   // The size of the whole build, mm at the kit's scale: [x, y, z] or null when empty.
   extent() {
     if (!this.items.length) return null;
-    const box = this.payloadBox(this.items.map((it) => ({ name: it.name, angles: it.angles, rel: it.pose })), kit.IDENTITY);
+    const box = this.boxOf();
     return [0, 1, 2].map((i) => (box.max[i] - box.min[i]) * this.scale);
   }
 
   // ---------------------------------------------------------------- what is attached to what
   // Every engaged joint in the build: [{a, b}] with a the plug port and b the socket port.
-  joints() {
-    const all = this.fixedPorts();
-    const index = kit.buildIndex(all);
+  joints() { return this.answer("joints", () => this.findJoints()).slice(); }
+
+  findJoints() {
+    const index = this.indexOf();
     const out = [];
-    for (const p of all) {
-      if (!kit.isPlug(p)) continue;
-      for (const q of index.get(`${Math.round(p.pos[0] * 100)},${Math.round(p.pos[1] * 100)},${Math.round(p.pos[2] * 100)}`) ?? []) {
-        if (q.item !== p.item && kit.mates(p, q)) out.push({ a: p, b: q });
+    for (const it of this.items) {
+      const ports = this.itemPorts(it), keys = this.portKeys(it);
+      for (let i = 0; i < ports.length; i++) {
+        const p = ports[i];
+        if (!kit.isPlug(p)) continue;
+        for (const q of index.get(keys[i])) if (q.item !== p.item && kit.mates(p, q)) out.push({ a: p, b: q });
       }
     }
     return out;
@@ -380,20 +500,34 @@ export class Scene {
   // Sides of parts that are only partly joined: some, but not all, of the plugs on one
   // side of a body are in a socket.  Such a joint holds, but less firmly (a twist block
   // on one plug of four held in a test print, weakly).  -> [{item, engaged, of}]
-  partlyJoined() {
+  partlyJoined() { return this.answer("partly joined", () => this.findPartlyJoined()).slice(); }
+
+  findPartlyJoined() {
     const groups = new Map();
     const key = (p) => `${p.item}:${p.body}:${p.normal.map((v) => Math.round(v * 10)).join(",")}`;
-    for (const p of this.fixedPorts()) {
-      if (!kit.isPlug(p) || p.system || p.passive) continue;
-      if (!groups.has(key(p))) groups.set(key(p), { item: p.item, engaged: 0, of: 0 });
-      groups.get(key(p)).of += 1;
+    // only a side with a plug in a socket can be partly joined, so only the items that have one are gone through
+    const engaged = new Map(), owners = new Set();
+    for (const j of this.joints()) {
+      if (j.a.system || j.a.passive) continue;
+      engaged.set(key(j.a), (engaged.get(key(j.a)) ?? 0) + 1);
+      owners.add(j.a.item);
     }
-    for (const j of this.joints()) if (groups.has(key(j.a))) groups.get(key(j.a)).engaged += 1;
+    for (const it of this.items) {
+      if (!owners.has(it.id)) continue;
+      for (const p of this.itemPorts(it)) {
+        if (!kit.isPlug(p) || p.system || p.passive) continue;
+        const k = key(p);
+        if (!groups.has(k)) groups.set(k, { item: p.item, engaged: engaged.get(k) ?? 0, of: 0 });
+        groups.get(k).of += 1;
+      }
+    }
     return [...groups.values()].filter((g) => g.engaged > 0 && g.engaged < g.of);
   }
 
   // Groups of items that are joined together, as arrays of item ids.
-  pieces() {
+  pieces() { return this.answer("pieces", () => this.findPieces()).map((group) => group.slice()); }
+
+  findPieces() {
     const parent = new Map(this.items.map((it) => [it.id, it.id]));
     const find = (x) => { while (parent.get(x) !== x) x = parent.get(x); return x; };
     for (const j of this.joints()) parent.set(find(j.a.item), find(j.b.item));
