@@ -39,6 +39,7 @@ for (const copies of [2, 10, 40, 100]) {
   const scene = build(copies);
   const parts = scene.items.length;
   const held = [{ name: "MADOS-20AA", angles: [], rel: kit.IDENTITY }];      // a twist block: plugs one end, sockets the rest
+  scene.joints(); scene.occupied();        // as after the build was opened: every part's joints and cubes are known
   const context = time("start of a drag (context)", () => scene.context());
   const ctx = context.out;
   // hold it over a free socket on top of a part in the middle of the build
@@ -48,10 +49,16 @@ for (const copies of [2, 10, 40, 100]) {
   const top = scene.itemPorts(target).find(free);
   const place = time("one move of the pointer over a part (choosePlacement)", () => scene.choosePlacement(held, ctx, { hit: top.pos, normal: top.normal, viewDir: [0, 0, -1], prefR: kit.IDENTITY.r, item: target.id }));
   const ground = time("one move of the pointer over the floor (snapNear)", () => scene.snapNear(held, ctx, { r: kit.IDENTITY.r, t: [top.pos[0] + 30, top.pos[1], 10] }));
-  const after = time("after a change (joints, pieces, partly joined, floating)", () => { scene.pieces(); scene.partlyJoined(); scene.floating(); scene.joints(); });
+  // one part is moved before each run, as a change does, so nothing whole-build can be answered from memory
+  const nudged = scene.items[Math.floor(parts / 3)];
+  const after = time("after a change (joints, pieces, partly joined, floating)", () => { nudged.pose = { r: nudged.pose.r, t: nudged.pose.t.slice() }; scene.pieces(); scene.partlyJoined(); scene.floating(); scene.joints(); });
+  const split = {};
+  for (const [label, fn] of [["ports", () => scene.fixedPorts()], ["index", () => scene.indexOf()], ["cubes", () => scene.occupied()], ["cores", () => scene.cores()]]) split[label] = time(label, fn).ms;
   const keyboard = time("every place on one part (placementsOn)", () => scene.placementsOn(held, ctx, target.id));
-  rows.push({ parts, context: context.ms, place: place.ms, ground: ground.ms, after: after.ms, keyboard: keyboard.ms, found: Boolean(place.out) });
+  rows.push({ split, parts, context: context.ms, place: place.ms, ground: ground.ms, after: after.ms, keyboard: keyboard.ms, found: Boolean(place.out) });
 }
 const show = (v) => (v < 10 ? v.toFixed(2) : v.toFixed(0)).padStart(8);
 console.log("parts   drag start   move on part   move on floor   after change   places on one part   (ms each)");
 for (const r of rows) console.log(`${String(r.parts).padStart(5)} ${show(r.context)}      ${show(r.place)}        ${show(r.ground)}       ${show(r.after)}           ${show(r.keyboard)}   ${r.found ? "" : "(nothing found)"}`);
+console.log("\nwhat the start of a drag is made of (ms):");
+for (const r of rows) console.log(`${String(r.parts).padStart(5)}  ` + Object.entries(r.split).map(([k, v]) => `${k} ${v.toFixed(2)}`).join("   "));
