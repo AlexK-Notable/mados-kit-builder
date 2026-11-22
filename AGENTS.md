@@ -47,7 +47,8 @@ computed by the Python side, and the JavaScript tests must reproduce them.
     tests/app/           `node --test` suites for the page
     tools/               data building, checks, measurement, pictures
     examples/            example generated parts with their checks
-    docs/                README pictures, the icon, `optimisation-notes.md`
+    docs/                README pictures, the icon, the picture shown when the repository's link is shared
+                         (`social-preview.png`, set by hand in the repository's settings), `optimisation-notes.md`
     upstream/            the list of the author's files; the files are downloaded, not committed
     serve.py             thin launcher for `mados_kit.server`, so nothing needs installing to run
 
