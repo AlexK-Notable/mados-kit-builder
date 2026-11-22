@@ -138,6 +138,7 @@ and socket shapes as his parts.
 | `kitparts.py` | parts as bodies, ports and moving joints |
 | `appdata.py`, `meshfile.py`, `tools/build_app_data.py`, `tools/build_tiles.py` | turn parts into `app/data/`, then cut blocks, twist blocks and covers into shared sections |
 | `docs/optimisation-notes.md` | a running log of ways to make this faster, smaller and steadier |
+| `AGENTS.md`, `CONTRIBUTING.md` | how the code is arranged and what it keeps to; how to report a wrong joint or send a change |
 | `params.py`, `model.py` | ten example generated parts with their checks |
 | `tools/` | measurement and verification scripts, and the ones that make the part pictures (`make_thumbnails.js`) and the pictures on this page (`screenshots.js`) |
 | `upstream/` | the list of the author's published files; the files themselves are downloaded, not kept here |
