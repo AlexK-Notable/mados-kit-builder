@@ -80,18 +80,20 @@ def describe(part, label, category, note=""):
             "meta": part["meta"], "bodies": bodies, "joints": part["joints"]}
 
 
-def write_mesh(man, path):
-    """Write a mesh in the app's compact form (src/mados_kit/meshfile.py) and return its triangle count.
-    What was written is read back and must still be a closed solid."""
+def write_mesh(man, out_dir, rel):
+    """Store a mesh under out_dir in the app's compact form (meshfile.py), named by its
+    content (store.py): `rel` is the name it would have without that, such as
+    "print/MADOS-20BA.mkm".  What is stored is read back and must still be a closed solid.
+    -> (the name it was stored under, its triangle count)"""
     import trimesh
-    from . import meshfile
+    from . import meshfile, store
     tm = M.to_trimesh(man)
-    assert tm.is_watertight, f"{path} is not watertight"
-    triangles, is_closed = meshfile.write(path, tm.vertices, tm.faces)
-    assert is_closed, f"{path} is not a closed solid once its points are rounded"
-    back = trimesh.Trimesh(*meshfile.read(path), process=False)
-    assert abs(back.volume - tm.volume) <= meshfile.ROUNDING_DRIFT_MAX * abs(tm.volume), path
-    return int(triangles)
+    assert tm.is_watertight, f"{rel} is not watertight"
+    data, triangles, is_closed = meshfile.packed(tm.vertices, tm.faces)
+    assert is_closed, f"{rel} is not a closed solid once its points are rounded"
+    back = trimesh.Trimesh(*meshfile.decode(data), process=False)
+    assert abs(back.volume - tm.volume) <= meshfile.ROUNDING_DRIFT_MAX * abs(tm.volume), rel
+    return store.put(out_dir, rel, data), int(triangles)
 
 
 DISPLAY_TOLERANCE = 0.05     # mm a display mesh may stray from the print mesh [measured: 89k -> 22k triangles on a 40 mm block, volume within 1 mm3]
@@ -131,11 +133,10 @@ def export_part(part, label, category, note, out_dir, print_mesh=None, folder=""
     for body, described in zip(part["bodies"], entry["bodies"]):
         light = body["mesh"].simplify(DISPLAY_TOLERANCE)
         assert abs(light.volume() - body["mesh"].volume()) < 0.01 * body["mesh"].volume(), part["name"]
-        described["mesh"] = f"{folder}meshes/{part['name']}__{body['name']}.mkm"
-        described["triangles"] = write_mesh(light, os.path.join(out_dir, described["mesh"]))
+        described["mesh"], described["triangles"] = write_mesh(light, out_dir, f"{folder}meshes/{part['name']}__{body['name']}.mkm")
     whole, filled = tidy(print_mesh if print_mesh is not None else P.mesh_of(part))
-    rel = f"{folder}print/{part['name']}.mkm"
-    entry["print"] = {"mesh": rel, "triangles": write_mesh(whole, os.path.join(out_dir, rel)),
+    rel, triangles = write_mesh(whole, out_dir, f"{folder}print/{part['name']}.mkm")
+    entry["print"] = {"mesh": rel, "triangles": triangles,
                       "volume_mm3": round(float(whole.volume()), 1), "bubbles_filled": filled,
                       "bbox": [round(float(v), 3) for v in whole.bounding_box()]}
     annotate(entry)

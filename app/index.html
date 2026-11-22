@@ -6,6 +6,9 @@
 <title>MADOS kit builder</title>
 <meta name="description" content="Snap MADOS building blocks together on screen, then download the parts list and the files to print.">
 <meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#1f7a5c">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3 28 9.5v13L16 29 4 22.5v-13z' fill='%231f7a5c'/%3E%3Cpath d='M16 3 28 9.5 16 16 4 9.5z' fill='%2358b996'/%3E%3Cpath d='M16 16v13L4 22.5v-13z' fill='%232a9370'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 <script>
@@ -17,6 +20,21 @@
   } catch { document.documentElement.dataset.theme = "light"; }
 </script>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+<!-- Everything the page needs to start is asked for at once, not one file after another as each
+     finds out what it needs.  tests/app/shell.test.mjs checks this list against the scripts. -->
+<link rel="modulepreload" href="app.js">
+<link rel="modulepreload" href="vendor/three.module.min.js">
+<link rel="modulepreload" href="vendor/OrbitControls.js">
+<link rel="modulepreload" href="kit.js">
+<link rel="modulepreload" href="scene.js">
+<link rel="modulepreload" href="families.js">
+<link rel="modulepreload" href="mesh.js">
+<link rel="modulepreload" href="stl.js">
+<link rel="modulepreload" href="solid.js">
+<link rel="modulepreload" href="zip.js">
+<link rel="modulepreload" href="share.js">
+<link rel="modulepreload" href="offline.js">
+<link rel="preload" href="data/catalog.json" as="fetch" crossorigin>
 </head>
 <body>
 <header>
@@ -45,6 +63,7 @@
         <hr>
         <button role="menuitem" id="custom-menu"><span>Make a part in another size&hellip;</span></button>
         <button role="menuitem" id="theme"><span id="theme-label">Dark colours</span></button>
+        <button role="menuitem" id="offline-menu" hidden><span id="offline-label">Use without a connection&hellip;</span></button>
       </div>
     </div>
     <button id="export" class="primary" title="See what to print, and download the files with a parts list"><span class="long">Download for printing</span><span class="short">Print list</span></button>
@@ -94,6 +113,11 @@
     <button id="panel-toggle" hidden></button>
     <div id="dropzone" hidden><div>Drop a saved build here to open it</div></div>
     <div id="loading">Loading parts&hellip;</div>
+    <div id="newer" role="status" hidden>
+      <span>A newer version of the builder is ready. Your build is kept.</span>
+      <button id="newer-use" class="primary">Use it now</button>
+      <button id="newer-later" class="link">Later</button>
+    </div>
   </section>
   <aside id="side" aria-label="Selected part and parts list">
     <button id="side-close" class="icon" aria-label="Close this panel" title="Close">&times;</button>
@@ -184,6 +208,14 @@
   <p id="share-note" class="small"></p>
   <div class="row"><input id="share-url" type="text" readonly aria-label="Link to this build"><button id="share-copy" class="primary">Copy</button></div>
   <form method="dialog" class="row end"><button>Close</button></form>
+</dialog>
+
+<dialog id="offlinebox">
+  <h2>Use without a connection</h2>
+  <p id="offline-text"></p>
+  <progress id="offline-bar" max="1" value="0" hidden></progress>
+  <p id="offline-status" class="small" role="status"></p>
+  <div class="row end"><button id="offline-remove" hidden>Remove from this device</button><span class="grow"></span><button id="offline-close">Close</button><button id="offline-keep" class="primary">Keep on this device</button></div>
 </dialog>
 
 <input type="file" id="file" accept=".json,application/json" hidden>

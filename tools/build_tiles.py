@@ -35,6 +35,7 @@ from mados_kit import catalogue as A
 from mados_kit import joints as K
 from mados_kit import parts as P
 from mados_kit import meshfile
+from mados_kit import store
 
 OUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "data"))
 SECTION = 2 * K.CELL          # mm: one face tile
@@ -174,9 +175,9 @@ def keep(section):
     i = len(tiles)
     light = section.simplify(A.DISPLAY_TOLERANCE)
     assert abs(light.volume() - volume) < 0.01 * volume
-    tile = {"print": f"tiles/s{i:03d}.mkm", "mesh": f"tiles/s{i:03d}_view.mkm", "volume_mm3": round(float(volume), 2)}
-    tile["print_triangles"] = A.write_mesh(section, os.path.join(OUT, tile["print"]))
-    tile["triangles"] = A.write_mesh(light, os.path.join(OUT, tile["mesh"]))
+    tile = {"volume_mm3": round(float(volume), 2)}
+    tile["print"], tile["print_triangles"] = A.write_mesh(section, OUT, f"tiles/s{i:03d}.mkm")
+    tile["mesh"], tile["triangles"] = A.write_mesh(light, OUT, f"tiles/s{i:03d}_view.mkm")
     tiles.append(tile)
     solids.append(from_file(tile["print"]))
     shapes.append(as_points(solids[-1]))
@@ -220,7 +221,6 @@ def rebuilt(placed):
 
 
 # ------------------------------------------------------------------ the author's blocks and twist blocks
-stale = []                    # whole meshes that sections replace; removed only once everything has checked out
 say("the author's blocks and twist blocks")
 for name in OFFICIAL:
     entry = by_name[name]
@@ -237,7 +237,7 @@ for name in OFFICIAL:
     back = rebuilt(placed)
     off = apart(as_points(back), as_points(whole))
     check(off < APART_MAX, f"{name}: {count} sections {[i for i, _ in placed]}; put back together, no point is more than {off * 1000:.1f} microns off the whole ({difference(back, whole):.2f} mm3 of film)")
-    stale += [entry["print"].pop("mesh"), entry["bodies"][0].pop("mesh")]
+    del entry["print"]["mesh"], entry["bodies"][0]["mesh"]      # the whole meshes go when the catalogue is saved
     entry["print"]["tiles"] = placed
     entry["print"]["triangles"] = sum(tiles[i]["print_triangles"] for i, _ in placed)
     entry["bodies"][0]["tiles"] = placed
@@ -344,7 +344,6 @@ pattern = [re.compile("^" + re.sub(r"\\\{\w+\\\}", r"\\d+", re.escape(f["name"])
 dropped = []
 for entry in list(catalog["parts"]):
     if any(p.match(entry["name"]) for p in pattern):
-        stale += [rel for rel in [entry["print"].get("mesh")] + [b.get("mesh") for b in entry["bodies"]] if rel]
         catalog["parts"].remove(entry)
         dropped.append(entry["name"])
 catalog["families"] = families
@@ -353,10 +352,7 @@ catalog["section"] = SECTION
 if failures:
     print(f"\nFAILED: {len(failures)} check(s); nothing was written to the catalogue\n   " + "\n   ".join(failures))
     sys.exit(1)
-json.dump(catalog, open(os.path.join(OUT, "catalog.json"), "w"))
-for rel in stale:
-    if os.path.exists(os.path.join(OUT, rel)):
-        os.remove(os.path.join(OUT, rel))
+removed = store.save(OUT, catalog)           # also clears away the whole meshes the sections replace
 size = sum(os.path.getsize(os.path.join(OUT, "tiles", f)) for f in os.listdir(os.path.join(OUT, "tiles")))
 print(f"\n{len(tiles)} sections ({size / 1e6:.1f} MB) serve {len(OFFICIAL)} of the author's parts and {len(families)} families; "
       f"{len(dropped)} generated sizes left the list: {dropped}  ({time.time() - t0:.0f} s)")

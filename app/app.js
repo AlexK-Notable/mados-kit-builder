@@ -12,6 +12,7 @@ import * as families from "./families.js";
 import { joined } from "./solid.js";
 import { makeZip } from "./zip.js";
 import * as share from "./share.js";
+import * as offline from "./offline.js";
 
 const COLORS = { Blocks: 0xe0a040, "Twist blocks": 0xd9743c, "Mini blocks": 0x5b6fd6, Joiners: 0x6f7885, Covers: 0x4f9fc4, Hinges: 0x8a78c0, Braces: 0x69ad6c, Plates: 0xc56a8a };
 const THEMES = {
@@ -42,6 +43,7 @@ try {
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = false;       // the shadows are drawn again only when a part or the light has moved (see requestRender)
 const world = new THREE.Scene();
 world.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 1.5));
 const sun = new THREE.DirectionalLight(0xffffff, 1.9);
@@ -82,8 +84,13 @@ const camera = new THREE.PerspectiveCamera(38, 1, 2, 6000);
 camera.up.set(0, 0, 1);
 camera.position.set(170, -230, 170);
 
+// Drawing is done when something has changed, not all the time.  Looking at the build from
+// somewhere else leaves the shadows on the floor as they are, so turning the view draws
+// the parts once, not twice [measured: a frame takes about half as long].
 let dirty = true;
-const requestRender = () => { dirty = true; };
+let shadowsStale = true;
+const requestRender = () => { dirty = true; shadowsStale = true; };      // something moved
+const requestView = () => { dirty = true; };                             // only the view did
 
 function applyTheme() {
   const theme = THEMES[document.documentElement.dataset.theme] ?? THEMES.light;
@@ -100,7 +107,7 @@ function applyTheme() {
 let scene = null;            // the build (scene.js)
 let catalog = null;
 const geometry = new Map();  // "part:body" -> THREE.BufferGeometry
-const triangles = new Map(); // "part:body" -> Float32Array of positions
+const shapes = new Map();    // "part:body" -> {points, index}: its points, and its triangles as three point numbers each
 const meshJobs = new Map();  // part name -> promise of its meshes being loaded
 const views = new Map();     // item id -> {group, meshes, material, name}
 let selected = null;         // item id
@@ -154,7 +161,22 @@ const fileStem = () => {
   const slug = scene.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   return slug ? `${slug}-${stamp()}` : `mados-build-${stamp()}`;
 };
-const thumbOf = (part) => `data/thumbs/${part.name}.png`;
+// A part's picture: the ready-made one the catalogue names, or, for a size made on the spot
+// and for parts made to order, one drawn here once its shape has been fetched.
+const drawnPictures = new Map();          // part name -> picture, as a data address
+const thumbOf = (part) => (part.thumb ? `data/${part.thumb}` : drawnPictures.get(part.name) ?? (ready(part) ? drawPicture(part) : ""));
+function drawPicture(part) {
+  if (!drawnPictures.has(part.name)) drawnPictures.set(part.name, renderThumbnail(part));
+  return drawnPictures.get(part.name);
+}
+// Show a part's picture in an <img>, drawing it first if need be.
+function pictureInto(image, part, draw = false) {
+  image.dataset.of = part.name;
+  const made = draw ? "" : thumbOf(part);
+  if (made) { image.src = made; return; }
+  image.removeAttribute("src");
+  ensureMeshes(part).then(() => { if (image.dataset.of === part.name) image.src = drawPicture(part); }, () => {});
+}
 
 // What a person printing a part wants to know about it.
 function sizeOf(part, scale = 1) {
@@ -176,8 +198,8 @@ function section(rel) {
 }
 const sectionsOf = (tiles, which) => Promise.all(tiles.map(async ([i, offset]) => ({ ...(await section(catalog.tiles[i][which])), offset })));
 
-// The triangles a body is drawn with: its own mesh, or its sections side by side.
-const bodyShape = async (body) => (body.mesh ? meshFile.fetchTriangles(`data/${body.mesh}`) : meshFile.assembled(await sectionsOf(body.tiles, "mesh")));
+// The points and triangles a body is drawn with: its own mesh, or its sections side by side.
+const bodyShape = async (body) => (body.mesh ? meshFile.fetchMesh(`data/${body.mesh}`) : meshFile.merged(await sectionsOf(body.tiles, "mesh")));
 
 // The triangles a part is printed from.  Sections are joined into one closed solid.
 async function printShape(part) {
@@ -186,13 +208,16 @@ async function printShape(part) {
 }
 
 function loadMeshes(part) {
-  return Promise.all(part.bodies.map((body, k) => bodyShape(body).then((positions) => {
+  // Each point is handed to the graphics card once and the triangles name their points,
+  // as the files store them; the facets come from the material (FACETED).  Writing every
+  // corner out in full, with a direction for each, took about five times the memory.
+  return Promise.all(part.bodies.map((body, k) => bodyShape(body).then((shape) => {
     const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    g.computeVertexNormals();
+    g.setAttribute("position", new THREE.BufferAttribute(shape.points, 3));
+    g.setIndex(new THREE.BufferAttribute(shape.points.length / 3 > 65535 ? shape.index : Uint16Array.from(shape.index), 1));
     g.computeBoundingSphere();
     geometry.set(`${part.name}:${k}`, g);
-    triangles.set(`${part.name}:${k}`, positions);
+    shapes.set(`${part.name}:${k}`, shape);
   })));
 }
 
@@ -220,6 +245,10 @@ const cardWatch = new IntersectionObserver((entries) => {
     if (card.seen) lingering.set(card, setTimeout(() => { lingering.delete(card); card.warm(); }, LINGER_MS));
   }
 });
+
+// Parts are drawn as the flat triangles they are made of: the direction each one faces is
+// worked out where it is drawn, so the shapes need not carry it.
+const FACETED = { flatShading: true };
 
 // Meshes for one part's bodies, sharing the loaded geometry.
 function bodyMeshes(part, material) {
@@ -250,7 +279,7 @@ function syncViews() {
     let view = views.get(item.id);
     if (!view) {
       if (!ready(part)) { ensureMeshes(part).then(syncViews, () => hint(`The shape of ${part.label} could not be fetched`, true, 5000)); continue; }
-      const material = new THREE.MeshStandardMaterial({ color: partColor(part), roughness: 0.72, metalness: 0.02 });
+      const material = new THREE.MeshStandardMaterial({ color: partColor(part), roughness: 0.72, metalness: 0.02, ...FACETED });
       const group = new THREE.Group();
       const meshes = bodyMeshes(part, material);
       for (const m of meshes) { m.userData.id = item.id; m.castShadow = true; group.add(m); }
@@ -437,10 +466,15 @@ function frame(now) {
     const left = (1 - k) * (1 - k);
     for (const id of animation.ids) views.get(id)?.group.position.set(...kit.scale(animation.offset, left));
     if (k >= 1) animation = null;
-    dirty = true;
+    requestRender();
   }
   if (!dirty) return;
   dirty = false;
+  draw();
+}
+
+function draw() {
+  if (shadowsStale) { renderer.shadowMap.needsUpdate = true; shadowsStale = false; }
   renderer.render(world, camera);
 }
 
@@ -522,7 +556,7 @@ function beginDrag(payload, { moving = [], prefR, event, label }) {
     pointerId: event.pointerId ?? null,
     hidden: moving,
     ctx: scene.context(moving),
-    held: visualFor(payload, new THREE.MeshStandardMaterial({ color: partColor(part), roughness: 0.72, transparent: true, opacity: 0.92 }), true),
+    held: visualFor(payload, new THREE.MeshStandardMaterial({ color: partColor(part), roughness: 0.72, transparent: true, opacity: 0.92, ...FACETED }), true),
     ghost: visualFor(payload, new THREE.MeshBasicMaterial({ color: 0x18c37f, transparent: true, opacity: 0.45, depthWrite: false })),
     target: null,
     remove: false,
@@ -744,7 +778,7 @@ const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, 0, 25);
 controls.maxPolarAngle = Math.PI * 0.62;
 controls.zoomToCursor = true;
-controls.addEventListener("change", requestRender);
+controls.addEventListener("change", requestView);
 controls.addEventListener("start", () => { fly = null; turnedFrom = controls.getAzimuthalAngle() + 10 * controls.getPolarAngle(); });
 // turning away from a straight-on view brings the usual lens back
 let turnedFrom = 0;
@@ -1297,13 +1331,13 @@ $("summary").addEventListener("pointerleave", () => markRow(null));
 // ---------------------------------------------------------------- parts list
 // A picture of a part, drawn here when no ready-made one is on the server (parts made to order).
 let thumbRenderer = null;
-function renderThumbnail(part) {
+function renderThumbnail(part, type = "image/png", quality = undefined) {
   const stage = new THREE.Scene();
   stage.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 1.6));
   const light = new THREE.DirectionalLight(0xffffff, 1.8);
   light.position.set(1, -2, 3);
   stage.add(light);
-  const material = new THREE.MeshStandardMaterial({ color: partColor(part), roughness: 0.72 });
+  const material = new THREE.MeshStandardMaterial({ color: partColor(part), roughness: 0.72, ...FACETED });
   const meshes = bodyMeshes(part, material);
   poseBodies(meshes, part, kit.IDENTITY, null);
   const box = new THREE.Box3();
@@ -1320,7 +1354,7 @@ function renderThumbnail(part) {
   thumbRenderer.setSize(240, 180, false);
   thumbRenderer.setClearColor(0x000000, 0);
   thumbRenderer.render(stage, eye);
-  const url = thumbRenderer.domElement.toDataURL("image/png");
+  const url = thumbRenderer.domElement.toDataURL(type, quality);
   material.dispose();
   return url;
 }
@@ -1336,12 +1370,9 @@ function makeCard(part, recent = false) {
   image.alt = "";
   image.loading = "lazy";
   image.width = 240; image.height = 180;
-  image.addEventListener("error", () => {
-    // no ready-made picture (a size made on the spot): draw one once its shape is here
-    const wanted = part;
-    if (image.dataset.drawn === wanted.name) return;
-    ensureMeshes(wanted).then(() => { if (part === wanted) { image.dataset.drawn = wanted.name; image.src = renderThumbnail(wanted); } }, () => {});
-  });
+  image.decoding = "async";
+  // a ready-made picture that cannot be fetched (no connection): draw one instead
+  image.addEventListener("error", () => { if (image.dataset.of === part.name && !image.src.startsWith("data:")) pictureInto(image, part, true); });
   const label = document.createElement("span");
   const size = document.createElement("small");
   // A card for a family of sizes shows a different part when its size is changed.
@@ -1349,7 +1380,7 @@ function makeCard(part, recent = false) {
     part = next;
     if (recent) card.dataset.recent = part.name; else card.dataset.part = part.name;
     card.setAttribute("aria-label", `${part.label}. Press Enter to stand one on the floor, or to join one onto the selected part.`);
-    image.src = thumbOf(part);
+    pictureInto(image, part);
     label.textContent = part.label;
     size.textContent = `${sizeOf(part).map((v) => Math.round(v)).join(" × ")} mm`;
     if (card.seen) warm(part);
@@ -1754,7 +1785,7 @@ function savePicture() {
   renderer.setPixelRatio(ratio);
   renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
   grid.visible = false;
-  renderer.render(world, camera);
+  draw();
   canvas.toBlob((blob) => {
     grid.visible = true;
     [selected, hovered, marked] = was;
@@ -1843,7 +1874,7 @@ async function printFiles({ preview = true } = {}) {
     await ensureBuild();
     const whole = stl.concat(scene.items.flatMap((item) => {
       const part = scene.partOf(item);
-      return kit.bodyPoses(part, item.angles).map((bp, k) => stl.transformed(triangles.get(`${part.name}:${k}`), kit.compose(item.pose, bp), scene.scale));
+      return kit.bodyPoses(part, item.angles).map((bp, k) => stl.transformed(meshFile.triangles(shapes.get(`${part.name}:${k}`)), kit.compose(item.pose, bp), scene.scale));
     }));
     files.push({ name: "assembly_preview.stl", data: stl.writeBinarySTL(whole, "MADOS kit build preview") });
   }
@@ -1874,7 +1905,7 @@ async function exportBuild() {
   try {
     const files = await printFiles({ preview: $("export-preview").checked });
     const prints = files.filter((f) => f.name.endsWith(".stl") && f.name.startsWith("print")).length;
-    download(`${fileStem()}.zip`, makeZip(files), "application/zip");
+    download(`${fileStem()}.zip`, await makeZip(files), "application/zip");
     $("exportbox").close();
     hint(`Downloaded ${plural(prints, "print file")} with a parts list`, false, 3500);
   } catch (error) {
@@ -1946,6 +1977,69 @@ $("help").addEventListener("click", () => $("helpbox").showModal());
 $("helpbox").addEventListener("toggle", () => { $("help-close").textContent = scene?.items.length ? "Back to the build" : "Start building"; });
 $("custom").addEventListener("click", openCustom);
 $("custom-menu").addEventListener("click", openCustom);
+
+// ---------------------------------------------------------------- kept for later, and without a connection
+// The service worker (sw.js) keeps what has been fetched.  A copy made for a web host can
+// also keep everything, so that the builder opens and works with no connection at all.
+async function startOffline() {
+  const { listed } = await offline.start({
+    onNewer(use) {
+      $("newer").hidden = false;
+      $("newer-use").onclick = () => { $("newer-use").disabled = true; use(); };
+    },
+  });
+  if (!listed) return;
+  $("offline-menu").hidden = false;
+  offline.tidy(catalog).catch(() => {});
+  if (offline.wished()) await offline.keepAll(catalog).catch(() => {});      // a newer catalogue may point at files not kept yet
+  labelOffline();
+}
+
+async function labelOffline() {
+  const { have, of } = await offline.keptCount(catalog);
+  $("offline-label").textContent = have === of ? "Kept for use without a connection ✓" : "Use without a connection…";
+  return { have, of };
+}
+
+async function openOffline() {
+  const size = offline.megabytes(offline.sizeOf(catalog));
+  const box = $("offlinebox");
+  const show = async () => {
+    const { have, of } = await labelOffline();
+    const all = have === of;
+    $("offline-text").textContent = all
+      ? `Everything the builder needs is kept on this device (${size}). It opens and works without a connection.`
+      : `The builder can be kept on this device, so that it opens and works without a connection: every part's shape, picture and print file, ${size} in all.${have ? ` ${have} of the ${of} files are here already.` : ""}`;
+    $("offline-keep").hidden = all;
+    $("offline-keep").disabled = false;
+    $("offline-remove").hidden = !all;
+    $("offline-bar").hidden = true;
+    $("offline-status").textContent = "";
+  };
+  await show();
+  let stop = null;
+  $("offline-keep").onclick = async () => {
+    stop = new AbortController();
+    $("offline-keep").disabled = true;
+    $("offline-bar").hidden = false;
+    try {
+      await offline.keepAll(catalog, (have, of) => {
+        $("offline-bar").value = have / of;
+        $("offline-status").textContent = `Fetching: ${have} of ${of} files`;
+      }, stop.signal);
+      await show();
+    } catch (error) {
+      if (!stop.signal.aborted) { await show(); $("offline-status").textContent = "Not everything could be fetched. What arrived is kept; try again when the connection is better."; }
+    }
+    stop = null;
+  };
+  $("offline-remove").onclick = async () => { await offline.forget(); await show(); };
+  $("offline-close").onclick = () => { stop?.abort(); box.close(); };
+  box.onclose = () => stop?.abort();
+  box.showModal();
+}
+$("offline-menu").addEventListener("click", openOffline);
+$("newer-later").addEventListener("click", () => { $("newer").hidden = true; });
 $("custom-kind").addEventListener("change", showCustomFields);
 $("custom-make").addEventListener("click", makeCustom);
 $("custom-cancel").addEventListener("click", () => $("custombox").close());
@@ -1999,12 +2093,17 @@ function drawExamples() {
 async function start() {
   applyTheme();
   catalog = await (await fetch("data/catalog.json")).json();
-  try {
-    // parts made to order live beside the launcher that made them; a plain web host has none
-    const made = await fetch("api/custom");
-    // a size made to order before the page could make it itself is now the family's to make
-    if (made.ok) catalog.parts.push(...(await made.json()).parts.filter((p) => !families.fromName(catalog, p.name)));
-  } catch { /* no made-to-order parts here */ }
+  // A copy made for a web host (tools/publish.py) says so, and is not asked for what only
+  // the launcher on someone's own computer can answer.
+  const launcher = !document.documentElement.hasAttribute("data-hosted");
+  if (launcher) {
+    try {
+      // parts made to order live beside the launcher that made them
+      const made = await fetch("api/custom");
+      // a size made to order before the page could make it itself is now the family's to make
+      if (made.ok) catalog.parts.push(...(await made.json()).parts.filter((p) => !families.fromName(catalog, p.name)));
+    } catch { /* no made-to-order parts here */ }
+  }
   scene = new Scene(catalog);
   // a family's card stands for every size of it, the author's own sizes included
   const inFamily = new Set((catalog.families ?? []).flatMap((family) => Object.values(family.official ?? {})));
@@ -2017,9 +2116,11 @@ async function start() {
   for (const family of catalog.families ?? []) if (!placed.has(family.id)) addFamilyCard(family);
   drawRecent();
   resize();
-  fetch("api/ping").then((r) => (r.ok ? r.json() : null)).then((info) => {
-    if (info) generator = { ok: Boolean(info.generate), why: info.why_not || generator.why };
-  }).catch(() => {});
+  if (launcher) {
+    fetch("api/ping").then((r) => (r.ok ? r.json() : null)).then((info) => {
+      if (info) generator = { ok: Boolean(info.generate), why: info.why_not || generator.why };
+    }).catch(() => {});
+  }
   fetch("examples/index.json").then((r) => (r.ok ? r.json() : [])).then((list) => { examples = list; drawExamples(); }).catch(() => {});
   try {
     const saved = store.get(STORE);
@@ -2034,6 +2135,7 @@ async function start() {
   refresh();
   fitView("corner", false);
   requestAnimationFrame(frame);
+  startOffline();
   if (!store.get(`${STORE}-seen`) && !opened) {
     if (scene.items.length) $("helpbox").showModal();   // an empty scene already shows how to start
     store.set(`${STORE}-seen`, "1");
@@ -2079,10 +2181,29 @@ async function start() {
       return [rect.left + rect.width / 2, rect.top + rect.height / 2];
     },
     // A part's picture for the list, as a PNG data address (tools/make_thumbnails.js saves these).
-    async thumbnail(name) {
+    // A part's picture as a data address; tools/make_thumbnails.js asks for them as WebP.
+    async thumbnail(name, type = "image/png", quality = undefined) {
       const part = scene.parts.get(name);
       await ensureMeshes(part);
-      return renderThumbnail(part);
+      return renderThumbnail(part, type, quality);
+    },
+    // What the last frame took to draw, and what is drawing it.
+    renderInfo() {
+      const gl = renderer.getContext();
+      const names = gl.getExtension("WEBGL_debug_renderer_info");
+      let points = 0;
+      for (const g of geometry.values()) points += g.attributes.position.count;
+      return { triangles: renderer.info.render.triangles, calls: renderer.info.render.calls, shapes: geometry.size, points,
+               drawnBy: names ? gl.getParameter(names.UNMASKED_RENDERER_WEBGL) : "unknown" };
+    },
+    // Draw the view now and say how long it took, with or without redoing the shadows.
+    timeFrame(shadows = true) {
+      if (shadows) shadowsStale = true;
+      const gl = renderer.getContext();
+      const start = performance.now();
+      draw();
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));     // waits until the drawing is really done
+      return performance.now() - start;
     },
   };
 }

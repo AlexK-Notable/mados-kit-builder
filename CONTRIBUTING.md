@@ -43,6 +43,8 @@ files, which are downloaded and not kept here:
    |---|---|
    | anything in `app/` | `node --test tests/app/*.test.mjs` |
    | the interface | also the browser checks (`tools/browser_smoke.js`), and retake the README pictures if it looks different (`tools/screenshots.js`) |
+   | the service worker, `offline.js` or `tools/publish.py` | also the published-copy check (`tools/browser_offline.js`) |
+   | the mesh format | both readers together (`src/mados_kit/meshfile.py`, `app/mesh.js`), then `tools/refresh_data.py` |
    | the joint rule, a generator or a part's joints | also `tools/check_kit.py`, and rebuild the parts involved with `tools/build_app_data.py NAME...` |
    | blocks, twist blocks or covers | also `tools/build_tiles.py` |
 

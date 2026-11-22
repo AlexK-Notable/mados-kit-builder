@@ -49,6 +49,61 @@ would cost. "Done" entries stay here with the numbers they produced.
   0.28 MB, the app's own code 0.19 MB. A web host squeezes text as it sends it: gzip takes
   the catalogue to 29 KB, three.js to 171 KB and `app.js` to 32 KB, so over the wire a
   first visit is about 1.5 MB, most of it shapes and pictures.
+- **A mesh layout that walks the surface** (2026-11-21). The first compact layout listed
+  each triangle as three point numbers. The one written now (`MKM2`, described at the top
+  of `src/mados_kit/meshfile.py`) goes from triangle to neighbouring triangle, so most
+  triangles cost one small number, and writes each new point as its distance from the edge
+  it was reached through. Nothing is lost: all 221 files read back as exactly the same
+  triangles, in Python and in the browser. Result: 15.34 MB to 6.74 MB, 3.92 bytes a
+  triangle to 1.72. The browser reads all 3.9 million triangles in 0.6 s, the largest
+  file (261,000 triangles) in 64 ms. Two flat, square-cornered meshes are smaller the old
+  way, so the writer keeps whichever is smaller and both readers know both.
+- **Data files named by their content** (2026-11-21). Every mesh and picture has ten
+  digits of its SHA-256 in its name (`src/mados_kit/store.py`), so a browser can keep it
+  for good. The catalogue is the one data file that keeps its name. The build clears away
+  files nothing points at: 13 pictures of parts that no longer exist had been left behind.
+- **A service worker: nothing fetched twice, and working without a connection**
+  (2026-11-21, `app/sw.js`, `app/offline.js`, `tools/publish.py`). A published copy keeps
+  its 30 page files (2.17 MB) as one set, checked against a list of digests, and keeps
+  each mesh and picture when first fetched. A second visit fetches nothing. "Use without
+  a connection" fetches the other 291 files (6.9 MB) on request. Checked in a browser with
+  the connection cut, from the top of an address and from a folder of one
+  (`tools/browser_offline.js`).
+- **Part pictures as WebP** (2026-11-21). The 70 pictures in use: 879 KB as PNG, 195 KB as
+  WebP at quality 0.9, with the colour profile the browser adds taken off (it was a
+  quarter of each small file).
+- **The download is squeezed** (2026-11-21). `zip.js` deflates each file with the
+  browser's own `CompressionStream`. Three example builds: 17.3, 21.7 and 8.3 MB of print
+  files become zips of 6.8, 8.6 and 3.2 MB, and squeezing takes 0.1 to 0.3 s.
+- **Shadows worked out only when something moves** (2026-11-21). Turning the view no
+  longer redraws the shadow map. Measured without a graphics card (the test browser draws
+  in software, about 184 ns a triangle): a frame of a 30-part build (976,000 triangles)
+  takes 180 ms instead of 228; of a 288-part build, 1.66 s instead of 2.06.
+- **Shapes drawn from numbered points** (2026-11-21, was item 1). A shape now reaches the
+  graphics card as its points and the triangles that name them, shaded flat by the
+  material. By the size of the buffers that is 12 to 18 bytes a triangle instead of 72
+  [worked out, not measured on a card]. It made frames no faster in software drawing,
+  where the time goes on filling triangles. Pixels compared before and after: under 0.1 %
+  differ, nearly all by one level of 255.
+- **The page's files asked for at once.** `index.html` lists the page's 12 modules
+  (`modulepreload`) and the catalogue, so the browser fetches them side by side and not as
+  each import is found. Not measured: the local server answers too fast to show it.
+- **What a first visit to a published copy is made of now** (2026-11-21, a browser with
+  nothing kept): the page needs 50 files, 1.98 MB as stored: three.js 0.72, the catalogue
+  0.58, shapes of the first screen 0.40, the app's code 0.21, pictures 0.07. Through a
+  host that gzips text that is 0.75 MB (it was about 1.5 MB). The service worker then
+  fetches the rest of the page's set in the background, mostly Manifold (0.54 MB, 0.21
+  gzipped where a host compresses `.wasm`), 2.62 MB as stored in all. The whole published
+  copy is 9.1 MB; before this day's work `app/` was 18.8 MB.
+- **Looked at and not done: coarser steps for drawn shapes.** Drawn shapes are stored to
+  the micrometre, like print files. Storing a sample of 36 at 0.01 mm made them 11 %
+  bigger, not smaller: points that merge leave surfaces the walk cannot follow, and those
+  fall back to the older layout. At 0.05 mm they were 25 % smaller and had lost a quarter
+  of their triangles, which shows.
+- **Looked at and not done: faster scene logic** (items 10 and 11 below). Measured with
+  `tools/bench_scene.mjs`: a pointer move during a drag costs 1 to 2.5 ms up to 600 parts,
+  and the work after a change 26 ms at 240 parts and 72 ms at 600. Drawing, not this, is
+  what a person waits for in a big build, so the two items stay open with these numbers.
 - **Tests on every push** (2026-11-21). The app's tests run on GitHub for every push and
   pull request. The browser checks still run by hand.
 
@@ -58,29 +113,35 @@ Ordered roughly by what they would buy for the effort.
 
 ### Download size and loading
 
-1. **Draw from numbered points instead of loose triangles.** The view copies every corner
-   of every triangle to the graphics card and works out normals for each (`loadMeshes` in
-   `app/app.js`). The compact files already hold numbered points; handing those to
-   three.js as they are, with flat shading done in the material, would cut the memory a
-   shape takes to about a third and skip the normal pass. Small change, contained.
+1. *Done: see above.*
 2. **Draw repeated sections as instances.** A 200 mm block is ten sections, eight of them
    the same. Today they are merged into one mesh per part. three.js can draw one section
    many times (`InstancedMesh`), which matters once a build has hundreds of parts.
 3. *Done: see above.*
-4. **Lighter display meshes.** A 20 mm block is drawn with about 12,800 triangles.
-   Quadric decimation (`fast-simplification` or `pyfqmr` in Python) keeps the look with
-   a quarter of that; Manifold's own simplify, used now, is cautious.
+4. **Lighter display meshes.** Two parts to this.
+   *Slivers on covers.* 17 % of all drawn triangles (203,000 of 1.22 million) have an
+   edge under 0.01 mm, nearly all on cover sections, wrap-cover panels, twist sections and
+   the 40 mm cube. Manifold's simplify leaves them when it runs on a shape still carrying
+   the pieces it was cut from; run again on the bare points and triangles at 0.005 mm it
+   takes the catalogue to 0.90 million (26 % fewer), a cover section from 9,500 to 2,700,
+   and moves nothing by more than 0.006 mm [measured on 12 parts]. Next to be done; needs
+   a rebuild of the data.
+   *Less detail where it cannot be seen.* Blocks and the other parts are already as light
+   as simplifying makes them without showing: letting a shape stray 0.1 mm removes about
+   30 % of its triangles and 0.2 mm about 58 %, and both show up close on the embossed
+   numbers and joint edges. A second, coarser shape for a part that is small on screen
+   would get that saving without the cost. The 40 mm cube is drawn with 171,000 triangles,
+   more than any other part.
 5. **A standard mesh format.** `.mkm` is home-made. glTF with meshopt compression gets a
    similar ratio, three.js reads it natively, and other tools can open it. Worth it only
    if something else needs to read the files.
-6. **Thumbnails as WebP.** 83 PNGs, 1.3 MB; WebP would be about a third.
+6. *Done: see above.*
 7. **The catalogue's joints and cubes for sectioned parts.** The author's sectioned parts
    still list every joint and occupied cube in `catalog.json` (0.21 MB of its 0.57 MB).
    They could be put together from their sections like the generated sizes are. Measured:
    the whole catalogue is 29 KB once a host gzips it, so this saves almost nothing on the
    wire; it would only shave parsing time.
-8. **Caching on a host.** Name data files by their content so they can be cached for
-   good, and add a service worker so the builder works offline after the first visit.
+8. *Done: see above.*
 9. **The repository's history.** The STL files are gone from the working tree but not
    from git history (`.git` is 133 MB). Before the repo goes public, start the history
    afresh so a clone is about 15 MB.
@@ -97,8 +158,7 @@ Ordered roughly by what they would buy for the effort.
 12. **Heavy work off the main thread.** Unpacking meshes, joining sections and writing
     the zip all run where the interface runs. A Web Worker would keep the page responsive
     while a large download is prepared.
-13. **Compress the download.** `zip.js` stores files unsqueezed; STL shrinks to about 40 %
-    with deflate, which the browser has built in (`CompressionStream`).
+13. *Done: see above.*
 
 ### Speed of the build pipeline
 
@@ -128,8 +188,8 @@ Ordered roughly by what they would buy for the effort.
     joiners needed their own crossing rule. Manifold is now in the browser; a real overlap
     test on the candidates that pass the cube test would be exact.
 20. **Browser checks on every push.** The quick tests run automatically now; the browser
-    checks (`tools/browser_smoke.js`) do not. They need a browser and the launcher in the
-    workflow.
+    checks (`tools/browser_smoke.js`, `tools/browser_offline.js`) do not. They need a
+    browser and the launcher in the workflow.
 21. **Custom parts in their own process.** `serve.py` runs the CAD generator inside the
     request; a part that fails badly can take the launcher with it. Run it as a child
     process with a time limit.
@@ -137,3 +197,26 @@ Ordered roughly by what they would buy for the effort.
     files. His exported STLs are what people normally print. Shipping those (compacted)
     would make the downloads byte-for-byte what he tested, at the cost of sectioning them
     separately.
+
+### Added 2026-11-21
+
+23. **Fetch the rest of the list while idle, on a return visit.** Files are now kept for
+    good, so someone who comes back could have the shapes they have not looked at yet
+    (2.4 MB for all of them) fetched quietly, and no card would ever wait. Left out so a
+    visit costs a host only what the visitor looks at; "Use without a connection" does it
+    on request.
+24. **A three.js with only what the builder uses.** three.js is 0.18 MB of the 0.75 MB a
+    first visit sends. A build that drops the unused parts needs a bundler, and so a
+    build step, which `app/` does not have.
+25. **A real graphics card in the measurements.** Frame times here come from software
+    drawing, which is the worst case and exaggerates the cost of triangles. Numbers from
+    ordinary laptops and phones would say whether items 2 and 4 matter to anyone.
+26. **A rebuild that gives the same bytes.** It does not today [measured 2026-11-21, a
+    full rebuild against the stored data]: of 83 part meshes 14 came out a few triangles
+    different (one body 10,637 points stored, 10,638 rebuilt), because Manifold's results
+    are not repeatable to the last triangle from run to run, and two print meshes last
+    built under an older rule are stored at a finer step than they would be now. The
+    shapes are equivalent, but every such file gets a new name, so a rebuild makes
+    visitors fetch parts again that have not changed. Worth finding out whether running
+    Manifold on one thread makes it repeatable; until then, rebuild only the parts a
+    change touches (`build_app_data.py NAME...`).

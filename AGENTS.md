@@ -20,7 +20,7 @@ real joint rules, and the app tells them how many of each part to print.
   fills, and decides snapping from that alone.
 
 The joint rule is therefore written twice: `src/mados_kit/joints.py` is the reference, checked against
-real meshes, and `app/kit.js` is what people run. `app/data/vectors.json` holds answers
+real meshes, and `app/kit.js` is what people run. `tests/app/vectors.json` holds answers
 computed by the Python side, and the JavaScript tests must reproduce them.
 
 ## Where things are
@@ -32,14 +32,16 @@ computed by the Python side, and the JavaScript tests must reproduce them.
       app.js             the interface
       mesh.js solid.js stl.js zip.js    reading meshes, joining sections, writing the download
       share.js           a whole build in a link
+      sw.js offline.js   the service worker: keeps what was fetched, so the builder works without a connection
       vendor/            three.js and Manifold, as shipped by their authors
-      data/              generated: catalogue, meshes, sections, part pictures
+      data/              generated: catalogue, meshes, sections, part pictures; every file but the catalogue is named by its content
     src/mados_kit/       the Python package
       generators.py      part generators
       joints.py          the joint rule and joint detection
       parts.py           parts as bodies, joints and moving joints; the joiner data set by test prints
       catalogue.py       catalogue records
       meshfile.py        the compact mesh format
+      store.py           how the files of app/data are named and kept
       server.py          local launcher, and parts made to order
       paths.py           where app/, app/data/ and upstream/ are
     tests/app/           `node --test` suites for the page
@@ -59,9 +61,12 @@ plain checkout. `pip install -e .[cad]` also works and brings the CAD packages.
     python tools/check_kit.py             # the rule against real meshes; minutes, needs requirements.txt and the author's files
     python tools/build_app_data.py [NAME...]   # rebuild app/data (about 15 minutes for everything)
     python tools/build_tiles.py           # cut repeating parts into sections and check them (about 20 minutes)
+    python3 tools/publish.py _site        # the copy that goes on a web host (seconds, needs nothing)
 
 The interface checks and the README pictures run in a real browser; the commands are at
-the top of `tools/browser_smoke.js` and `tools/screenshots.js`.
+the top of `tools/browser_smoke.js` and `tools/screenshots.js`. `tools/browser_offline.js`
+checks a published copy the same way: kept on the device, working with the connection
+cut, and changing to a newer version when asked.
 
 ## What must stay true
 
@@ -77,7 +82,10 @@ the top of `tools/browser_smoke.js` and `tools/screenshots.js`.
 4. **`app/` stays a plain static page.** No build step, no package manager, no network
    calls except its own files. Libraries are vendored with their licences.
 5. **`app/data/` is generated.** Do not edit it by hand; change the code that writes it
-   and rebuild.
+   and rebuild. Meshes and pictures carry ten digits of their content's SHA-256 in their
+   names (`src/mados_kit/store.py`), so a name never comes to mean something else and a
+   browser may keep such a file for good. Nothing else in `app/` may be treated that way.
+   The two readers of the mesh format, `meshfile.py` and `app/mesh.js`, change together.
 6. **The author's parts stay the author's.** They keep his names and part numbers, and a
    download of one of his parts is his shape. Parts this project makes are labelled
    "(generated)".
@@ -103,6 +111,12 @@ the top of `tools/browser_smoke.js` and `tools/screenshots.js`.
   for `channel_40` shows his 40 mm block. Checks that need the generated one use
   `madosApp.showPart(name)`.
 - Sockets on stepped or inset faces of nine of the author's parts are not detected yet.
+- The service worker has two ways of working (top of `app/sw.js`). A copy made with
+  `tools/publish.py` keeps the page's files as one checked set and changes version all at
+  once; `app/` served as it stands asks afresh every time. While developing, the second is
+  what runs, so an edit shows on the next reload.
+- A file added to `app/` that the page imports also goes in the `modulepreload` list in
+  `index.html`; `tests/app/shell.test.mjs` fails until it does.
 
 ## Licence
 

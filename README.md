@@ -16,7 +16,8 @@ You need Python 3 and a current browser. Nothing has to be installed.
     python3 serve.py
 
 opens the builder at http://127.0.0.1:8377/. The `app/` folder is a plain static web
-page, so any web host can serve it as it is.
+page, so any web host can serve it as it is. `python3 tools/publish.py _site` makes a
+copy that does more for visitors: see "On a web host" below.
 
 **Building.** Drag a part out of the list, or click it to stand it on the floor. Hold it
 over another part: a green outline shows where it will go, and if it cannot go there the
@@ -58,6 +59,12 @@ copies a link that carries the whole build, saves a picture of the view, and ope
 small example builds, each with notes on what to look at. A build can be given a name,
 which goes into its file, its link and its parts list. A saved build can also be dropped
 onto the page.
+
+**Without a connection.** The builder keeps what it has fetched, so a part seen once is
+there next time without asking the network. On a web host, Build > Use without a
+connection offers to fetch everything (about 7 MB), after which the whole builder, the print
+files included, works with no connection at all. It can be installed like an app from
+the browser's menu.
 
 **Other screens.** There are dark colours (they follow the system, or Build > Dark
 colours), and on a phone the list moves under the view: pull a part up out of it, or rest
@@ -101,6 +108,18 @@ part in another size" says which is missing:
 Generated parts are cut with the author's own joint tools, so they carry the same plug
 and socket shapes as his parts.
 
+## On a web host
+
+    python3 tools/publish.py _site
+
+makes the copy to put on a host: 9 MB, of which a first visit fetches about 2 MB (under
+1 MB through a host that compresses text, which most do). In that copy the page's own
+files are kept in the browser as one checked set, so a second visit starts without
+fetching anything and a newer version takes over all at once when the visitor says so.
+Meshes and pictures are named by their content and fetched once, when first wanted.
+The copy works from any folder of any static host; `.github/workflows/pages.yml`
+publishes it to GitHub Pages when started by hand.
+
 ## What is not right yet
 
 - Two test prints (PLA, 0.2 mm and 0.12 mm layers) are behind the joint rules: the twist
@@ -128,7 +147,7 @@ and socket shapes as his parts.
 ## What is in here
 
     app/                 the builder: a static web page, served as it is
-      data/              generated: catalogue, meshes, shared sections, part pictures (about 17 MB)
+      data/              generated: catalogue, meshes, shared sections, part pictures (about 7.5 MB)
       examples/          the example builds the Build menu offers
       vendor/            three.js and Manifold
     src/mados_kit/       the Python side
@@ -137,6 +156,7 @@ and socket shapes as his parts.
       parts.py           parts as bodies, joints and moving joints
       catalogue.py       a part's record, meshes and description for the app
       meshfile.py        the compact mesh format
+      store.py           how the data files are named and kept
       server.py          the local launcher, and parts made to order
     tests/app/           the app's tests
     tools/               scripts that build the data, check it, measure the author's files, and take the pictures
@@ -147,8 +167,8 @@ and socket shapes as his parts.
 
 In `app/`: `kit.js` is the joint rule, `scene.js` the build, `app.js` the interface,
 `families.js` parts at any size, `mesh.js` and `solid.js` read meshes and join sections
-for printing, `stl.js` and `zip.js` write the download, and `share.js` puts a build in a
-link. `AGENTS.md` says how the code is arranged and what it keeps to; `CONTRIBUTING.md`
+for printing, `stl.js` and `zip.js` write the download, `share.js` puts a build in a
+link, and `sw.js` with `offline.js` keeps the builder working without a connection. `AGENTS.md` says how the code is arranged and what it keeps to; `CONTRIBUTING.md`
 says how to report a wrong joint or send a change.
 
 `app/data/` is rebuilt from the author's files. Fetch them as above, plus the print files
@@ -168,6 +188,9 @@ into sections and checks each against the mesh it was cut from.
   (`node --test tests/app/*.test.mjs`).
 - The interface is driven with a real mouse and with touch, and what it does is compared
   with what it should do (`tools/browser_smoke.js`).
+- A published copy is opened in a real browser, the connection is cut, and it must still
+  open, draw, and make print files; then a newer version is published and must take over
+  when asked (`tools/browser_offline.js`).
 
 ## Licence and credit
 

@@ -1,0 +1,49 @@
+name: Publish the site
+
+# Puts the builder on GitHub Pages.  It runs only when started by hand (Actions > Publish
+# the site > Run workflow), and it can only succeed once Pages is switched on for the
+# repository with "GitHub Actions" as its source (Settings > Pages).  Until then it does
+# nothing, and nothing starts it.
+#
+# What goes up is the copy tools/publish.py makes of app/, not app/ itself: see the top of
+# that file for what the copy adds.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One publication at a time, and one that has started is allowed to finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Check the app and make the copy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: node --test tests/app/*.test.mjs
+      - run: python3 tools/publish.py _site
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    name: Put it on GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write        # to publish
+      id-token: write     # so Pages can tell the copy came from this workflow
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

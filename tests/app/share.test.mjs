@@ -51,6 +51,7 @@ test("every part in the catalogue says how to print it and has a picture", () =>
     assert.match(part.print.layer, /^0\.\d+( or 0\.\d+)?$/, part.name);
     assert.ok(part.print.volume_mm3 > 0, part.name);
     if (/^MADOS-20[A-Z]{2}$/.test(part.name)) assert.equal(part.page, `https://www.mados3d.com/mados/${part.name.toLowerCase()}`);
-    readFileSync(join(app, "data", "thumbs", `${part.name}.png`));
+    assert.match(part.thumb, /^thumbs\/.+\.webp$/, `${part.name} has a picture`);
+    readFileSync(join(app, "data", part.thumb));
   }
 });

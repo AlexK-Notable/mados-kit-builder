@@ -218,3 +218,9 @@ dialog p { line-height: 1.45; }
 }
 @media (min-width: 861px) { #panel-toggle { display: none !important; } }
 @media (prefers-reduced-motion: reduce) { #cards { scroll-behavior: auto; } #side { transition: none; } }
+
+/* a newer version is ready (offline.js) */
+#newer { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 6; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center;
+  max-width: min(94%, 620px); padding: 8px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 13px; }
+#newer[hidden] { display: none; }
+#offlinebox progress { width: 100%; height: 10px; accent-color: var(--accent); }
