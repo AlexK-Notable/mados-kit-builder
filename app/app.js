@@ -7,6 +7,7 @@ import { OrbitControls } from "./vendor/OrbitControls.js";
 import * as kit from "./kit.js";
 import { Scene } from "./scene.js";
 import * as stl from "./stl.js";
+import * as meshFile from "./mesh.js";
 import { makeZip } from "./zip.js";
 import * as share from "./share.js";
 
@@ -166,11 +167,7 @@ const gramsText = (g) => (g < 10 ? `${g.toFixed(1)} g` : `${Math.round(g)} g`);
 const ready = (part) => part.bodies.every((_, k) => geometry.has(`${part.name}:${k}`));
 
 function loadMeshes(part) {
-  return Promise.all(part.bodies.map((body, k) => fetch(`data/${body.mesh}`).then((r) => {
-    if (!r.ok) throw new Error(`${body.mesh}: ${r.status}`);
-    return r.arrayBuffer();
-  }).then((buffer) => {
-    const positions = stl.parseBinarySTL(buffer);
+  return Promise.all(part.bodies.map((body, k) => meshFile.fetchTriangles(`data/${body.mesh}`).then((positions) => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     g.computeVertexNormals();
@@ -1680,8 +1677,8 @@ async function printFiles({ preview = true } = {}) {
   const lines = [];
   for (const row of rows) {
     const part = row.part;
-    let data = await (await fetch(`data/${part.print.mesh}`)).arrayBuffer();
-    if (scene.scale !== 1) data = stl.writeBinarySTL(stl.transformed(stl.parseBinarySTL(data), null, scene.scale), part.label);
+    const shape = await meshFile.fetchTriangles(`data/${part.print.mesh}`);
+    const data = stl.writeBinarySTL(scene.scale === 1 ? shape : stl.transformed(shape, null, scene.scale), part.label);
     const name = `${fineLayers(part) ? "print-fine-layers" : "print"}/${row.quantity}x_${row.name}.stl`;
     files.push({ name, data });
     const size = sizeOf(part, scene.scale).map((v) => v.toFixed(1)).join(" x ");

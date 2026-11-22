@@ -80,12 +80,18 @@ def describe(part, label, category, note=""):
             "meta": part["meta"], "bodies": bodies, "joints": part["joints"]}
 
 
-def write_stl(man, path):
+def write_mesh(man, path):
+    """Write a mesh in the app's compact form (meshfile.py) and return its triangle count.
+    What was written is read back and must still be a closed solid."""
+    import trimesh
+    import meshfile
     tm = M.to_trimesh(man)
     assert tm.is_watertight, f"{path} is not watertight"
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tm.export(path)
-    return int(len(tm.faces))
+    triangles, is_closed = meshfile.write(path, tm.vertices, tm.faces)
+    assert is_closed, f"{path} is not a closed solid once its points are rounded"
+    back = trimesh.Trimesh(*meshfile.read(path), process=False)
+    assert abs(back.volume - tm.volume) <= meshfile.ROUNDING_DRIFT_MAX * abs(tm.volume), path
+    return int(triangles)
 
 
 DISPLAY_TOLERANCE = 0.05     # mm a display mesh may stray from the print mesh [measured: 89k -> 22k triangles on a 40 mm block, volume within 1 mm3]
@@ -125,11 +131,11 @@ def export_part(part, label, category, note, out_dir, print_mesh=None, folder=""
     for body, described in zip(part["bodies"], entry["bodies"]):
         light = body["mesh"].simplify(DISPLAY_TOLERANCE)
         assert abs(light.volume() - body["mesh"].volume()) < 0.01 * body["mesh"].volume(), part["name"]
-        described["mesh"] = f"{folder}meshes/{part['name']}__{body['name']}.stl"
-        described["triangles"] = write_stl(light, os.path.join(out_dir, described["mesh"]))
+        described["mesh"] = f"{folder}meshes/{part['name']}__{body['name']}.mkm"
+        described["triangles"] = write_mesh(light, os.path.join(out_dir, described["mesh"]))
     whole, filled = tidy(print_mesh if print_mesh is not None else P.mesh_of(part))
-    rel = f"{folder}print/{part['name']}.stl"
-    entry["print"] = {"mesh": rel, "triangles": write_stl(whole, os.path.join(out_dir, rel)),
+    rel = f"{folder}print/{part['name']}.mkm"
+    entry["print"] = {"mesh": rel, "triangles": write_mesh(whole, os.path.join(out_dir, rel)),
                       "volume_mm3": round(float(whole.volume()), 1), "bubbles_filled": filled,
                       "bbox": [round(float(v), 3) for v in whole.bounding_box()]}
     annotate(entry)
