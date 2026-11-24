@@ -392,3 +392,80 @@ test("what the scene remembers is what a scene that remembers nothing works out"
     agree(`after change ${step + 1}`);
   }
 });
+
+// ---------------------------------------------------------------- threads in line
+// The threads of two blocks continue in each other only when the blocks are turned alike
+// (the author's notches).  src/mados_kit/joints.py, hole_thread, has the measurements.
+const QUARTER = kit.rotation([0, 0, 1], 90);
+const threadOf = (scene, id) => scene.itemPorts(scene.get(id)).find((p) => p.thread && !kit.isPlug(p)).thread.join(",");
+
+test("a block has one thread, the same on all six faces, and it is one of four as the block is turned", () => {
+  const { scene, onFloor } = fresh();
+  const id = onFloor("MADOS-20BA");
+  const holes = scene.itemPorts(scene.get(id)).filter((p) => p.system === "hole");
+  assert.equal(holes.length, 6);
+  assert.equal(new Set(holes.map((p) => p.thread.join(","))).size, 1);
+  const part = scene.parts.get("MADOS-20BA");
+  assert.equal(kit.sameWays(part).length, 24, "a plain block is the same block 24 ways");
+  const threads = kit.sameWays(part).map((way) => kit.transformPort(part.bodies[0].ports.find((p) => p.thread), way).thread.join(","));
+  assert.equal(new Set(threads).size, 4);
+  for (const t of new Set(threads)) assert.equal(threads.filter((x) => x === t).length, 6, "six of the 24 ways keep the threads where they are");
+});
+
+test("a grub joiner goes through two blocks only where their threads meet, and the builder says so", () => {
+  const { scene, one } = fresh();
+  const blocks = (turned) => ({ format: "mados-kit build", items: [
+    { name: "MADOS-20BA", pose: { r: R0, t: [0, 0, 10] }, angles: [] },
+    { name: "MADOS-20BA", pose: { r: turned ? QUARTER : R0, t: [20, 0, 10] }, angles: [] }] });
+  const through = () => {
+    const ctx = scene.context();
+    const got = scene.choosePlacement(one("MADOS-20GE"), ctx, { hit: [10, 0, 10], normal: [1, 0, 0], viewDir: VIEW, prefR: R0, item: scene.items[0].id });
+    return { got, why: got ? null : scene.whyNot(one("MADOS-20GE"), ctx, [10, 0, 10]) };
+  };
+  scene.load(blocks(false));
+  assert.equal(through().got?.engaged, 2, "turned alike, the grub holds both");
+  // opened turned a quarter apart, the second block is turned to match: it is the same block either way
+  scene.load(blocks(true));
+  assert.equal(scene.lineUpThreads(), 1, "the builder does this when a build is opened");
+  assert.equal(threadOf(scene, scene.items[0].id), threadOf(scene, scene.items[1].id));
+  assert.equal(through().got?.engaged, 2);
+  // made to differ, the grub is refused and the reason is the threads
+  scene.load(blocks(true));
+  assert.notEqual(threadOf(scene, scene.items[0].id), threadOf(scene, scene.items[1].id));
+  const refused = through();
+  assert.equal(refused.got, null);
+  assert.match(refused.why, /threads of those two parts do not meet/);
+});
+
+test("a block put down beside others is turned to their thread without being asked", () => {
+  const { scene, onFloor, one } = fresh();
+  const first = onFloor("MADOS-20BA", 0, 0);
+  const second = scene.place(one("MADOS-20BA"), scene.groundPose(one("MADOS-20BA"), QUARTER, 40, 0))[0];
+  assert.equal(threadOf(scene, second), threadOf(scene, first));
+  assert.deepEqual(scene.boxOf([second]), { min: [30, -10, 0], max: [50, 10, 20] }, "it stands where it was put");
+  const long = scene.place(one("channel_60"), scene.groundPose(one("channel_60"), kit.rotation([0, 0, 1], 180), 0, 60))[0];
+  assert.equal(threadOf(scene, long), threadOf(scene, first), "a long block has two ways round that match");
+});
+
+test("a threaded nut goes into a hole the one way its tab lets it", () => {
+  for (const nut of ["MADOS-20FA", "MADOS-20FK", "MADOS-20FL"]) {
+    const { scene, onFloor, one } = fresh();
+    const block = onFloor("MADOS-20BA");
+    const ctx = scene.context();
+    const top = ctx.fixed.filter((p) => p.system === "hole" && p.normal[2] > 0.9);
+    const poses = kit.candidatePoses(scene.payloadPorts(one(nut)), ctx.fixed, ctx.index, top);
+    assert.equal(poses.length, 1, `${nut} in the top of a block`);
+    void block;
+  }
+  // a through-hole joiner has its tab on one end: with that end in the block it goes one way, both when it
+  // stands half out of the top and when it is pushed in from the top tab last; plain end in the block, any of four
+  const { scene, onFloor, one } = fresh();
+  onFloor("MADOS-20BA");
+  const ctx = scene.context();
+  const top = ctx.fixed.filter((p) => p.system === "hole" && p.normal[2] > 0.9);
+  const through = scene.payloadPorts(one("MADOS-20FT"));
+  const ways = kit.candidatePoses(through, ctx.fixed, ctx.index, top);
+  const tabIn = ways.filter((c) => kit.evaluate(through, ctx.index, c.pose).engaged.some(([m]) => m.thread));
+  assert.equal(tabIn.length, 2);
+  assert.equal(ways.length - tabIn.length, 4);
+});

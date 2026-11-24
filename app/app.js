@@ -91,6 +91,33 @@ groupBoxes.frustumCulled = false;
 groupBoxes.renderOrder = 9;
 world.add(groupBoxes);
 const BOX_EDGES = [0, 1, 1, 3, 3, 2, 2, 0, 4, 5, 5, 7, 7, 6, 6, 4, 0, 4, 1, 5, 2, 6, 3, 7];     // corner k is (k & 1, k & 2, k & 4) of low and high
+// The author cuts a small notch on one side of the opening in the middle of every face: the
+// threads of two parts continue in each other when their notches are on the same side
+// (kit.js, threadFits).  The builder turns parts so that they are; a dot on each notch of
+// what is selected shows where they are, for putting the printed parts together.
+const NOTCH_OUT = 3.9;                         // mm from the middle of a face to its notch, along each of the face's two directions [measured on MADOS-20BA: 3.8 and 4.1]
+const notchDots = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color: 0xf2a33a, size: 7, sizeAttenuation: false, depthTest: false, transparent: true }));
+notchDots.visible = false;
+notchDots.frustumCulled = false;
+notchDots.renderOrder = 10;
+world.add(notchDots);
+
+function markNotches() {
+  const ids = selected != null ? [selected] : [...group];
+  const at = [];
+  for (const id of ids) {
+    const item = scene.get(id);
+    if (!item || (drag && drag.hidden.includes(id))) continue;
+    for (const p of scene.itemPorts(item)) {
+      if (!p.thread || kit.isPlug(p)) continue;
+      const side = kit.scale(kit.cross(p.normal, p.thread), kit.dot(p.thread, p.normal));      // where the notch is on this face
+      at.push(...kit.add(kit.add(p.pos, kit.scale(side, NOTCH_OUT)), kit.scale(p.normal, 0.3)));
+    }
+  }
+  notchDots.visible = at.length > 0;
+  if (at.length) notchDots.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(at), 3));
+}
+
 function outlineGroup() {
   const items = [...group].map((id) => scene.get(id)).filter((item) => item && !(drag && drag.hidden.includes(item.id)));
   groupBoxes.visible = items.length > 0;
@@ -375,6 +402,7 @@ function syncViews() {
     selectionBox.box.set(new THREE.Vector3(...box.min).subScalar(0.6), new THREE.Vector3(...box.max).addScalar(0.6));
   }
   outlineGroup();
+  markNotches();
   const bounds = boundsOf();
   reach = bounds ? bounds.radius : 0;
   middle = bounds ? bounds.centre : new THREE.Vector3(0, 0, 20);
@@ -1404,6 +1432,7 @@ function drawSelection() {
       ${part.page ? `<li><a href="${escapeHtml(part.page)}" target="_blank" rel="noopener">The author's page for this part</a></li>` : ""}
     </ul>
     <p class="plain">${joined ? `Held by ${plural(joined, "joint")}, in a piece of ${plural(piece, "part")}.` : "Not joined to anything yet. Drag it onto another part."}</p>
+    ${part.bodies.some((b) => b.ports.some((p) => p.thread && p.kind === "socket")) ? `<p class="small">The orange dots are the small notches by the middle opening of each face. Put the printed parts together with their notches on the same side, as the builder has them, and a rod or a grub joiner will screw from one into the next.</p>` : ""}
     ${loose.map((g) => `<p class="callout">Only ${g.engaged} of its ${g.of} plugs on one side ${g.engaged === 1 ? "is" : "are"} in a socket. It holds, but weakly.</p>`).join("")}
     <div class="row">
       <button data-do="copy" title="Ctrl+D: stand a copy on the floor">Copy</button>
@@ -1971,6 +2000,7 @@ function openBuild(data, said = "") {
   const before = JSON.stringify(scene.toJSON());
   try {
     scene.load(typeof data === "string" ? JSON.parse(data) : data);
+    scene.lineUpThreads();            // builds made before the builder minded the threads, and builds made elsewhere
   } catch (error) {
     scene.load(JSON.parse(before));
     refresh();
@@ -2255,7 +2285,8 @@ function openExport() {
       <td class="dim">${sizeOf(row.part, scene.scale).join(" &times; ")} mm</td></tr>`).join("")}</table></div>
     ${fine.length ? `<p class="small">${plural(fine.length, "kind")} of part ${fine.length === 1 ? "prints" : "print"} best at 0.1 or 0.12 mm layers. Those files come in their own folder, so they are easy to slice as a separate plate; everything else is meant for 0.2 mm.</p>` : `<p class="small">Every part here is meant for 0.2 mm layers.</p>`}
     ${graded ? `<p class="small">Joint strength: ${scene.fit ? `this build is set <b>${fitWords(scene.fit)}</b>` : "each part is at the strength the author recommends for it"}. Change it under <b>This build</b> if your printer's joints come out loose or stiff.</p>` : ""}
-    <p class="small">The author's advice for every part: Classic perimeter generator, one wall on top and bottom layers, no supports.</p>
+    <p class="small">The author's advice for every part: Classic perimeter generator, one wall on top and bottom layers, no supports.
+      In his first video he prints PLA at 0.2 mm on a smooth plate, with a couple of skirt loops.</p>
     ${pieces > 1 ? `<p class="callout">This build is in ${pieces} separate pieces that nothing joins together. That is fine if you meant it.</p>` : ""}
     ${loose ? `<p class="callout">${loose === 1 ? "One part is" : `${loose} parts are`} only partly joined and will hold weakly.</p>` : ""}`;
   showBed();
@@ -2494,7 +2525,7 @@ async function start() {
   fetch("examples/index.json").then((r) => (r.ok ? r.json() : [])).then((list) => { examples = list; drawExamples(); }).catch(() => {});
   try {
     const saved = store.get(STORE);
-    if (saved) scene.load(JSON.parse(saved));
+    if (saved) { scene.load(JSON.parse(saved)); scene.lineUpThreads(); }
   } catch { /* an unreadable autosave is ignored */ }
   const opened = await openFromAddress();
   if (scene.items.length) {

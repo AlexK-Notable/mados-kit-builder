@@ -44,12 +44,14 @@ before = json.load(open(os.path.join(OUT, "catalog.json"))) if os.path.exists(os
 previous = before if only else None
 drawn = {p["name"]: p for p in before["parts"]} if before else {}
 built = {}
+sizes = []                  # generated sizes that are not kept one by one: made again only when a rebuilt part's answers need one
 for label, category, note, make, print_mesh in A.catalogue():
     if only:
         # labels are reworded when a part is described, so an official part is found by its number
         code = re.search(r"\((20[A-Z]{2})\)$", label)
         was = next((p for p in previous["parts"] if (p["name"] == f"MADOS-{code.group(1)}" if code else p["label"] == label)), None)
         if was is None:
+            sizes.append((label, category, note, make))
             continue                # a generated size its family now makes (tools/build_tiles.py); not kept one by one
         if was["name"] not in only:
             catalog["parts"].append(was)
@@ -109,9 +111,18 @@ pairs = [("cover_20x20_s4", "channel_40"), ("twist_40_s3", "channel_40"), ("MADO
 if only:                                                 # answers for pairs that are no longer asked about
     for key in ("candidates", "collisions"):
         vectors[key] = [row for row in vectors[key] if (row["mover"], row["fixed"]) in pairs]
+def made_again(name):
+    """A generated size, as a part and its description, without writing any of its files."""
+    while name not in built and sizes:
+        label, category, note, make = sizes.pop(0)
+        part = make()
+        built[part["name"]] = (part, A.describe(part, label, category, note))
+    return name in built
+
+
 for mover, fixed in pairs:
     if only:
-        if mover not in built or fixed not in built:
+        if not ((mover in only or fixed in only) and made_again(mover) and made_again(fixed)):      # only what a rebuilt part is in
             continue
         for key in ("candidates", "collisions"):
             vectors[key] = [row for row in vectors[key] if (row["mover"], row["fixed"]) != (mover, fixed)]
@@ -127,7 +138,8 @@ for mover, fixed in pairs:
         real = K.mesh_interference(mesh_mover, mesh_fixed, pose)
         # a joiner sits inside its host: it must not cut into it by more than its studs' threads do
         # [measured: at most 2.7 mm3 a stud; the grub is checked at one turn only, where it reads up to 6.3]
-        # [measured: MADOS-20FK flush in the end of a 40 mm block reads 8.2 - 9.9]
+        # [measured 2026-11-23, every placement asked about here: 4.03 at most (the pull joiner); MADOS-20FK in the end of a
+        #  40 mm block 2.39, where it read 8.2 - 9.9 while it was stood tab end in: see parts.CHANNEL_JOINERS]
         # a nut that lies wholly inside one block passes two faces with one joint: its far end counts too
         passed = n + sum(bool(p.get("passive")) for p in mp)
         allowed = 7.0 * passed if built[mover][0]["kind"] == "joiner" else 5.0

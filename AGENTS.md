@@ -101,6 +101,11 @@ cut, and changing to a newer version when asked.
    `build_tiles.py`, `build_patches.py`, `check_strength.py`: rebuilding a part drops its
    patches. What is recommended for a generated size is written down with its source in
    `tools/build_tiles.py` and `catalogue.GENERATED_RECOMMENDED`.
+   **Threads are part of the joint rule.** A threaded hole carries `thread`, the diagonal of
+   its block that its thread follows, and a threaded stud its own; they join only when the
+   two are the same (`joints.hole_thread`, `kit.threadFits`). A part that is the same
+   turned several ways (`kit.sameWays`) is put down the way that lines its thread up with
+   the build (`scene.threadsInLine`), so nobody building has to mind the notches.
 8. **Words on screen are for beginners.** Plain sentences, no jargon, and when the builder
    refuses something it says why and what would work instead.
 9. **Nothing personal in the repository.** No names, home paths, machine names or

@@ -57,6 +57,17 @@ builder says why. Let go and it snaps in.
   ("lid", "connector", "bracket").
 - Undo and redo cover everything. The build is kept in the browser as you go.
 
+**Threads that meet.** Every face of a block has a threaded opening in its middle, and
+the author cuts a small notch on its edge: the threads of two blocks only continue in
+each other when their notches point the same way, which is what lets a grub joiner or an
+M8 rod pass from block to block. A plain block looks the same turned 24 ways, so the
+builder minds this for you. A part that can be turned without changing what it is or
+where it stands is put down the way that lines its threads up with the build. Every
+joiner that slides into an opening has a small tab for that notch, and is put in with its
+tab in it: a threaded nut goes in one way only. A grub joiner is refused, with the reason,
+between two parts whose threads cannot meet. Select a part and an orange dot marks each
+of its notches; when you assemble, put them on the same side, as the builder has them.
+
 **Joint strength.** The author publishes every part that grips at ten strengths, 0
 (loosest) to 9, and recommends one for each part: 1 for a short twist block, 4 for a
 200 mm one. The builder starts every part at the strength he recommends. Which strength

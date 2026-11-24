@@ -342,16 +342,25 @@ export class Scene {
     let best = null;
     variants.forEach((variant, vi) => {
       const moving = this.payloadPorts(variant);
+      const looks = variant.length === 1
+        ? kit.sameWays(this.parts.get(variant[0].name)).map((way) => kit.matMul(kit.matMul(variant[0].rel.r, way.r), kit.transpose(variant[0].rel.r)))
+        : [kit.IDENTITY.r];
       for (const c of kit.candidatePoses(moving, ctx.fixed, ctx.index, targets)) {
         if (!this.fits(variant, c.pose, ctx)) continue;
         const mating = moving.map((p) => kit.transformPort(p, c.pose))
           .filter((p) => kit.dot(p.normal, n) < -0.9 && Math.abs(kit.dot(p.pos, n) - plane) < 0.01);
         if (!mating.length) continue;
         const centre = mating.reduce((s, p) => kit.add(s, p.pos), [0, 0, 0]).map((v) => v / mating.length);
-        const held = heldToward(prefR, c.pose.r, n);
-        const spin = kit.rotationAngle(kit.matMul(c.pose.r, kit.transpose(held.r)));
+        // how far this is from the way the part is held.  A part that is the same turned several ways (a plain
+        // block, whose threads alone decide which of them it goes on by) is as near as the nearest of those.
+        let turning = Infinity;
+        for (const way of looks) {
+          const r = kit.matMul(c.pose.r, way);
+          const held = heldToward(prefR, r, n);
+          turning = Math.min(turning, SPIN_COST * kit.rotationAngle(kit.matMul(r, kit.transpose(held.r))) + TIP_COST * held.tip);
+        }
         const waiting = waitingPlugs(kit.evaluate(moving, ctx.index, c.pose).engaged);
-        let score = kit.norm(kit.sub(centre, onPlane)) + SPIN_COST * spin + TIP_COST * held.tip
+        let score = kit.norm(kit.sub(centre, onPlane)) + turning
           - ENGAGE_PULL * c.engaged - WAITING_PULL * Math.max(0, waiting - 1)
           + (mating.every((p) => p.body === 0) ? 0 : 12);  // a hinge goes on by its fixed leaf, leaving the swinging one free
         if (jointed) score += (vi ? 20 : 0) - 1000 * c.engaged;
@@ -376,6 +385,13 @@ export class Scene {
     }
     if (!myPlugs && !plugsHere) return "Two sockets cannot join: put a part with plugs between them, such as a twist block, a Mini Block Half C or a grub joiner";
     if (!mySockets && !socketsHere) return "Two plugs cannot join: one side needs sockets";
+    // a threaded joiner that would go in, were the threads of the two parts it joins turned alike
+    if (mine.some((p) => p.thread)) {
+      const smooth = mine.map(({ thread, ...p }) => p);
+      if (kit.candidatePoses(smooth, ctx.fixed, ctx.index, near).some((c) => this.fits(payload, c.pose, ctx))) {
+        return "The threads of those two parts do not meet, so it cannot be screwed through both: turn one of them a quarter turn (the small notches on their faces point the same way when they do)";
+      }
+    }
     return "It does not fit there";
   }
 
@@ -487,7 +503,8 @@ export class Scene {
   // Put a payload down.  New parts are added; members that carry an id are moved.  -> [ids]
   place(payload, pose) {
     return payload.map((m) => {
-      const world = clean(kit.compose(pose, m.rel));
+      let world = clean(kit.compose(pose, m.rel));
+      if (payload.length === 1) world = this.threadsInLine(m.name, world, m.id == null ? [] : [m.id]);
       if (m.id != null && this.get(m.id)) {
         const it = this.get(m.id);
         it.pose = world; it.angles = m.angles.slice();
@@ -495,6 +512,73 @@ export class Scene {
       }
       return this.add(m.name, world, m.angles.slice(), m.fit).id;
     });
+  }
+
+  // ---------------------------------------------------------------- threads in line
+  // The threaded holes of a block belong together, and those of two blocks only continue in
+  // each other when the blocks are turned alike: the author marks it with a notch on every
+  // face, to be pointed the same way (kit.js, threadFits).  A block looks the same turned
+  // 24 ways, so the person building is not asked to mind the notches: a part that can be
+  // turned without changing what it is or where it is (kit.sameWays) is put down the way
+  // that lines its threads up, first with the threads it meets (a nut goes into its hole
+  // the one way its tab lets it, a block onto a nut that is already there), and then with
+  // most of the build.
+
+  // The thread most parts of the build have, as kit.diagonal writes it, or null.
+  commonThread(exclude = []) {
+    const skip = new Set(exclude), count = new Map();
+    for (const it of this.items) {
+      if (skip.has(it.id)) continue;
+      const hole = this.itemPorts(it).find((p) => p.thread && !kit.isPlug(p));
+      if (hole) count.set(hole.thread.join(","), (count.get(hole.thread.join(",")) ?? 0) + 1);
+    }
+    let best = null;
+    for (const [thread, n] of count) if (!best || n > best[1]) best = [thread, n];
+    return best ? best[0] : null;
+  }
+
+  // The pose a part should have at `pose`, of the ways it is the same there.  `index`: the
+  // ports of the rest of the build by place; `common`: the thread most of the build has.
+  threadsInLine(name, pose, exclude = [], index = null, common = undefined, own = null) {
+    const part = this.parts.get(name);
+    const ways = kit.sameWays(part);
+    if (ways.length < 2) return pose;
+    index ??= this.indexOf(exclude);
+    if (common === undefined) common = this.commonThread(exclude);
+    const threaded = part.bodies[0].ports.filter((p) => p.thread);
+    let best = null;
+    for (const way of ways) {
+      const at = clean(kit.compose(pose, way));
+      let met = 0, missed = 0, withBuild = 0;
+      for (const local of threaded) {
+        const p = kit.transformPort(local, at);
+        for (const q of index.get(kit.posKey(p.pos)) ?? []) {
+          if (!q.thread || q.item === own || kit.isPlug(p) === kit.isPlug(q) || p.system !== q.system || kit.dot(p.normal, q.normal) > -0.9) continue;
+          if (kit.threadFits(p, q)) met += 1; else missed += 1;
+        }
+        if (!kit.isPlug(p) && common && p.thread.join(",") === common) withBuild = 1;
+      }
+      const score = 100 * (met - missed) + withBuild;
+      if (!best || score > best.score) best = { score, at };            // the first of equals: as it was held
+    }
+    return best.at;
+  }
+
+  // Turn every part that can be the way that lines the threads of the build up: the parts
+  // with threaded holes first, then the joiners in them.  -> how many were turned.
+  lineUpThreads() {
+    let turned = 0;
+    for (const holes of [true, false]) {
+      // blocks follow most of the build; the joiners then follow the holes they are in
+      const index = holes ? new Map() : this.indexOf(), common = holes ? this.commonThread() : null;
+      for (const it of this.items) {
+        const part = this.partOf(it);
+        if (kit.sameWays(part).length < 2 || part.bodies[0].ports.some((p) => p.thread && !kit.isPlug(p)) !== holes) continue;
+        const pose = this.threadsInLine(it.name, it.pose, [it.id], index, common, it.id);
+        if (kit.poseKey(pose) !== kit.poseKey(it.pose)) { it.pose = pose; turned += 1; }
+      }
+    }
+    return turned;
   }
 
   // How many joints an item has engaged with the rest of the build.
