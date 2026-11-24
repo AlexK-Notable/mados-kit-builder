@@ -13,6 +13,8 @@ the grid again, which is where it can connect to other parts.
 """
 import itertools
 
+import functools
+
 import numpy as np
 
 from . import joints as K
@@ -192,13 +194,18 @@ JOINER_STUDS = {
 CHANNEL_TURN = 45.0
 CHANNEL_JOINERS = {
     # 40 mm: centred on the face between two blocks, 20 mm into each, flush with their far faces
-    "MADOS-20FT": (15.0, [(0, 1), (0, -1), (20, -1, True), (-20, 1, True)]),
-    "MADOS-20FU": (15.0, [(0, 1), (0, -1), (20, -1, True), (-20, 1, True)]),
+    # their threaded end, at z = -20, has the tab: it is a joint with the face it is flush with (see joiner_tab)
+    "MADOS-20FT": (15.0, [(0, 1), (0, -1), (20, -1, True), (-20, 1)]),
+    "MADOS-20FU": (15.0, [(0, 1), (0, -1), (20, -1, True), (-20, 1)]),
     "MADOS-20FM": (-10.0, [(0, 1), (0, -1), (20, -1, True), (-20, 1, True)]),     # 4 mm3 a block: a tight fit that pulls them together
     # 20 mm, a nut inside one block: pushed in until it is flush with the face it went in by
     # [test print 2026-11-20: "it sits flush. the intention is pretty clearly for these to function as a nut inside the block"]
-    "MADOS-20FK": (10.0, [(0, -1), (-20, 1, True)]),
-    "MADOS-20FL": (10.0, [(0, -1), (-20, 1, True)]),
+    # [measured 2026-11-23: the tab is on the end at z = -20, and a 40 mm block (MADOS-20BB) has notches at its two
+    #  ends only.  Tab at the face it goes in by, the nut clashes by 2.39 mm3 at the one turn that fits; tab 20 mm
+    #  deep, by 7.7 - 9.4 at every turn.  So it goes in by the face at z = -20, tab last.  In a 20 mm block the two
+    #  are the same place, which is all the test print could show.]
+    "MADOS-20FK": (10.0, [(-20, 1), (0, -1, True)]),
+    "MADOS-20FL": (10.0, [(-20, 1), (0, -1, True)]),
     # the 7 mm nut likewise [test print 2026-11-20: "it sits flush with the face it was inserted into"]
     "MADOS-20FA": (10.0, [(0, -1)]),
     # block to plate: the bar is drawn inside a block (file y -10..10) with the boss 10 mm outside.
@@ -253,8 +260,95 @@ def stock_joiner(part_number):
         stud = K.port(K.STUD, pos, normal, (1, 0, 0), system=K.SEAT)
         stud["webs"] = [list(to_bar)]
         ports.append(stud)
+    tab = joiner_tab(mesh) if part_number in CHANNEL_JOINERS else None
+    if tab:                                               # the stud that goes in by the face whose notch the tab sits in
+        z, side = tab
+        keyed = sorted((stud for stud in ports if stud.get("system") == K.HOLE and not stud.get("passive") and abs(stud["pos"][2] - z) < 1e-6),
+                       key=lambda stud: stud["normal"][2])
+        assert keyed, f"{part_number}: no stud goes in where its tab is (z = {z})"
+        keyed[0]["thread"] = tab_thread(-keyed[0]["normal"][2], side)        # where two parts meet, the face of the one below
+    else:                                                 # no tab: a thread of its own (the grub), or smooth
+        thread = stud_thread(mesh)
+        for stud in ports:
+            if thread and stud.get("system") == K.HOLE:
+                stud["thread"] = thread
     meta["cores"] = joiner_cores(part_number, mesh)
     return rigid(part_number, "joiner", mesh, ports, **meta)
+
+
+# The notch on each face of a block (joints.hole_thread) is there for a tab: every joiner
+# that slides into the channel has one small bump on one of its four sides, and it goes in
+# with the bump in the notch [the author's video "Add Metal Rods and Wheels", 1:45: the tab
+# "can only be inserted in one orientation"].
+# [measured 2026-11-23, each joiner standing in the kit frame, in slabs 1.6 mm thick: how
+#  far it reaches along the four diagonals (+x+y, +x-y, -x-y, -x+y).  Where there is no tab
+#  4.85, 4.7, 4.85, 4.7.  Where there is: 5.62, 5.7, 5.62, 4.7 on the nuts MADOS-20FA (the
+#  end at z = 0), 20FK and 20FL (the end at z = -20); 5.62, 5.3, 5.62, 4.7 on the
+#  through-hole joiners 20FT and 20FU (the threaded end, z = -20), the pull joiner 20FM and
+#  the block to plate joiner 20FB (round z = 0, where two parts meet).  The notch of
+#  MADOS-20BA, as it stands in joints.detect_holes, is 2.22 mm3 on the +x-y side of the
+#  top face and of the bottom face.  A nut turned any other way clashes by 2.2 mm3 at its
+#  tab; the smaller tab of the others by 0.1 - 0.3, so it guides them and does not stop them.]
+TAB_SLAB = 1.6                # mm of a joiner's length looked at for a tab
+TAB_MIN = 0.4                 # mm a tab stands out further than the side opposite it [measured: 0.6 and 1.0; 0.0 - 0.15 without one]
+TAB_EVEN = 0.2                # mm the other two sides may differ where there is a tab [measured: 0.0]
+
+
+def joiner_tab(mesh):
+    """The tab of a joiner standing in the kit frame.  -> (z of the face whose notch it sits
+    in, the side of the channel it is on: two numbers of 1 or -1), or None without one."""
+    import manifold3d as m3
+    box = mesh.bounding_box()
+    low, high = float(box[2]), float(box[5])
+    slabs = [((high - TAB_SLAB, high), high), ((low, low + TAB_SLAB), low)]
+    if low < -5.0 and high > 5.0:
+        slabs.insert(0, ((-TAB_SLAB, TAB_SLAB), 0.0))                         # where two parts meet
+    for (z0, z1), z in slabs:
+        piece = mesh ^ m3.Manifold.cube([40.0, 40.0, z1 - z0], False).translate([-20.0, -20.0, z0])
+        points = np.asarray(piece.to_mesh().vert_properties)[:, :2]
+        reach = {d: float((points @ np.array(d, float)).max()) / np.sqrt(2) for d in itertools.product((1, -1), repeat=2)}
+        for d in reach:
+            across = (-d[1], d[0])
+            if reach[d] - reach[(-d[0], -d[1])] >= TAB_MIN and abs(reach[across] - reach[(-across[0], -across[1])]) <= TAB_EVEN:
+                return round(z, 6), d
+    return None
+
+
+def tab_thread(outward, side):
+    """The thread diagonal of a hole whose notch is on `side` of its channel, on a face
+    looking along Z the way `outward` says (1 or -1): what a joiner with its tab there has."""
+    n = np.array([0.0, 0.0, float(outward)])
+    for a in itertools.product((1, -1), repeat=3):
+        a = np.array(a, float)
+        if a[0] > 0 and np.allclose(np.dot(a, n) * np.cross(n, a), [side[0], side[1], 0.0]):
+            return [int(c) for c in a]
+    raise AssertionError((outward, side))
+
+
+THREAD_BLOCK = "MADOS-20BA"   # the block a joiner's own thread is found in
+STUD_KEYED = 0.67             # a joiner has a thread of its own when its best quarter turn in a block clashes by less than this share of the next best
+                              # [measured 2026-11-23 in two MADOS-20BA: the grub 0.45 (3.02 mm3 against 6.67); the joiners that have a tab
+                              #  instead (joiner_tab) 0.39 - 0.44 for the nuts and 0.92 - 0.99 for the rest]
+
+
+@functools.lru_cache(maxsize=None)
+def _thread_blocks():
+    """Two blocks face to face at z = 0 with their threads in line, and their thread diagonal."""
+    block = M.to_manifold(M.load(THREAD_BLOCK).solids()[0])
+    holes = [h for h in K.detect_holes(block, K.detect_ports(block)) if h["normal"] == [0, 0, 1]]
+    assert len(holes) == 1 and "thread" in holes[0], holes
+    return block.translate([0, 0, -10.0]) + block.translate([0, 0, 10.0]), holes[0]["thread"]
+
+
+def stud_thread(mesh):
+    """The thread diagonal of a joiner standing in the kit frame (its channel along Z, the
+    face it enters by at z = 0), or None for one that goes in the same at every quarter turn."""
+    blocks, diagonal = _thread_blocks()
+    clash = [(K.apply(mesh, K._turn_z(turn)) ^ blocks).volume() for turn in (0, 90, 180, 270)]
+    order = np.argsort(clash)
+    if clash[order[0]] >= STUD_KEYED * clash[order[1]]:
+        return None
+    return K._diagonal(K._turn_z(90 * int(order[0]))[:3, :3].T @ np.array(diagonal, float))
 
 
 CORE_HALF = 4.0     # mm, half the side of the square a joiner in a channel is taken to fill [the bars are 7.9 mm square, the grub 10.5 mm across]

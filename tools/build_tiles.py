@@ -302,7 +302,7 @@ def port_key(p):
     # next door, and nothing reads it since the plate joiners turned out not to go into blocks
     return json.dumps([p["kind"], [round(v, 3) for v in p["pos"]], [round(v) for v in p["normal"]], [round(v) for v in p["d"]],
                        p.get("strength"), p.get("system"), sorted(map(tuple, p.get("open", []))) if p.get("system") == K.SEAT else [],
-                       bool(p.get("passive"))])
+                       bool(p.get("passive")), p.get("thread")])
 
 
 families = []

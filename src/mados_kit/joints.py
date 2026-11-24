@@ -307,6 +307,50 @@ def _turn_z(deg):
     return t
 
 
+# The thread in a hole starts at one place round it, and a block is cut so that the threads
+# of all six faces belong together: the author marks it with a small notch on one edge of
+# each face's channel, and says that with the notches of two blocks pointing the same way
+# every thread of one continues in the other [his video "Add Metal Rods and Wheels to your
+# 3D Printed Structures", 1:15 to 3:10].
+# [measured 2026-11-23 on MADOS-20BA: the grub half in a face fits at one quarter turn
+#  (1.51 mm3) and clashes at the other three (5.4 - 6.3).  With the grub's X at `key` when
+#  its Z points out of the face with normal n, the vector n - key - n x key is the same
+#  corner-to-corner diagonal of the block, (1, 1, -1) or its opposite, on all six faces.
+#  Two blocks face to face take the grub across them in 6 of the 24 ways the second can be
+#  turned (3.02 mm3, twice one block's), exactly those that keep the diagonal; in the other
+#  18 it clashes by 6.7 - 7.8 at every turn.  20 mm is 16 turns of the M8 thread, so the
+#  same holds from block to block along a build.
+#  The notch itself: at the mouth of each face's channel one of the four sides is cut away,
+#  2.22 mm3, and on all six faces of MADOS-20BA it is on the side (a . n)(n x a) of the
+#  face with normal n, a being that diagonal.  So the notches of two faces that meet are in
+#  the same place exactly when the diagonals are the same.]
+# So a threaded hole carries `thread`: that diagonal, as three numbers of 1 or -1.  A stud
+# with a thread of its own carries one too, and they go together when the two are parallel.
+THREAD_CLEAR = 0.5            # a hole's thread is known when the grub's best quarter turn clashes by less than this share of the next best
+                              # [measured on MADOS-20BA: 0.28]
+
+
+def hole_thread(man, centre, n, u):
+    """The thread diagonal of the hole at `centre` on the face with normal n (u: any direction
+    along the face), or None where no quarter turn of the grub is clearly the one that fits."""
+    frame = np.eye(4)
+    frame[:3, :3] = np.column_stack([u, np.cross(n, u), n])
+    frame[:3, 3] = centre
+    clash = [(apply(hole_probe(), frame @ _turn_z(turn)) ^ man).volume() for turn in (0, 90, 180, 270)]
+    order = np.argsort(clash)
+    if clash[order[0]] >= THREAD_CLEAR * clash[order[1]]:
+        return None
+    key = (frame @ _turn_z(90 * int(order[0])))[:3, 0]
+    return _diagonal(n - key - np.cross(n, key))
+
+
+def _diagonal(v):
+    """A corner-to-corner direction as three whole numbers, its first one positive (v and -v are the same thread)."""
+    v = np.round(np.asarray(v, float)).astype(int)
+    assert np.all(np.abs(v) == 1), v
+    return [int(c) for c in (v if v[0] > 0 else -v)]
+
+
 def detect_holes(man, ports):
     """The threaded holes of a part: one in the middle of each 20 mm face tile, found by
     trying the grub joiner half in at every point between four sockets of a face.  Each
@@ -333,6 +377,9 @@ def detect_holes(man, ports):
             if not HOLE_CLICK[0] < clash < HOLE_CLICK[1]:
                 continue
             hole = port(SOCKET, centre, n, u, system=HOLE)
+            thread = hole_thread(man, centre, n, u)
+            if thread:
+                hole["thread"] = thread
             hole["open"] = []
             for direction in (u, -u, v, -v):
                 # the plate joiner as drawn has its boss under (0, 0, 10), pointing down, web along +X
@@ -356,6 +403,8 @@ def transform_port(p, pose):
     for key in ("open", "webs"):                         # directions along the face, see detect_holes
         if key in p:
             out[key] = _turned(p, r, key)
+    if "thread" in p:
+        out["thread"] = _diagonal(r @ np.array(p["thread"], float))
     if p.get("passive"):
         out["passive"] = True
     return out
@@ -385,13 +434,20 @@ def _parallel(a, b):
 
 def mates(a, b):
     """True if ports a and b (both in world coordinates) form an engaged joint.  A threaded
-    hole takes its stud at any quarter turn, so its direction d does not matter."""
+    hole's direction d does not matter: a smooth stud goes in at any quarter turn, a threaded
+    one where the threads meet."""
     return (_is_plug(a) != _is_plug(b)
             and not a.get("passive") and not b.get("passive")
             and a.get("system") == b.get("system")
             and np.allclose(a["pos"], b["pos"], atol=POS_TOL)
             and np.allclose(np.array(a["normal"]), -np.array(b["normal"]))
-            and (_web_fits(a, b) if a.get("system") in ROUND else _parallel(a["d"], b["d"])))
+            and ((_web_fits(a, b) and _thread_fits(a, b)) if a.get("system") in ROUND else _parallel(a["d"], b["d"])))
+
+
+def _thread_fits(a, b):
+    """A stud with a thread of its own goes into a threaded hole only where the two threads
+    meet: their diagonals are the same (see hole_thread).  A smooth stud goes in any way."""
+    return "thread" not in a or "thread" not in b or list(a["thread"]) == list(b["thread"])
 
 
 def _web_fits(a, b):

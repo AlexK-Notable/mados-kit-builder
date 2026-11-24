@@ -140,7 +140,7 @@ async page => {
   const d3 = await drag(await card("MADOS-20BA"), await at(tip));
   await page.fill("#search", "");
   s = await state();
-  check("a through hole joiner slides into a block's channel and holds a second block", d.target?.engaged === 1 && s.pieces === 1 && s.items.length === 3 && /MADOS-20BA@.*,30$/.test(s.items[2]), `${d.hint} / ${d3.hint} / ${s.items.join(" ")}`);
+  check("a through hole joiner slides into a block's channel, tab end in, and holds a second block", d.target?.engaged === 2 && s.pieces === 1 && s.items.length === 3 && /MADOS-20BA@.*,30$/.test(s.items[2]), `${d.hint} / ${d3.hint} / ${s.items.join(" ")}`);
 
   await reset([{ name: "channel_40", pose: { r: I, t: [0, 0, 10] }, angles: [] }]);
   await drag(await card("twist_40_s3"), await at([0, -10, 20]));

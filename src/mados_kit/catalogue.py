@@ -435,7 +435,8 @@ OFFICIAL_USE = {
     "MADOS-20HA": "Print-in-place hinge with a socket on one leaf and a plug on the other.",
     "MADOS-20GE": "A threaded pin that joins two plain blocks face to face. Hold the blocks together and screw it in "
                   "through one of them with a 5 mm Allen key until half is in each; it can travel right through a block. "
-                  "Only one joiner can pass through the middle of a block.",
+                  "Only one joiner can pass through the middle of a block. The threads of the two blocks have to meet: "
+                  "when you put them together, the small notches on the two faces point the same way.",
     "MADOS-20FC": "A strip with two M8 nuts 20 mm apart, for plates only. Each nut sits in the hollow on the pointed side "
                   "of a plate, flush, so the strip ties two plates lying edge to edge together; M8 bolts through the plates "
                   "hold it. It does not fit a block.",
@@ -449,11 +450,11 @@ OFFICIAL_USE.update({
     "MADOS-20FU": f"{IN_CHANNEL} Half goes into each of two blocks to join them; its cross holes take an M8 rod.",
     "MADOS-20FM": f"{IN_CHANNEL} Half goes into each of two blocks and pulls them tight together.",
     "MADOS-20FK": "A nut that lives inside a block. Push it into the opening in the middle of a face until it is flush; "
-                  "its side thread then takes an M8 bolt. It does not join two blocks.",
+                  "its side thread then takes an M8 bolt. It does not join two blocks. It goes in one way only, the way the builder shows it.",
     "MADOS-20FL": "A nut that lives inside a block. Push it into the opening in the middle of a face until it is flush; "
-                  "its side thread then takes an M8 bolt. It does not join two blocks.",
+                  "its side thread then takes an M8 bolt. It does not join two blocks. It goes in one way only, the way the builder shows it.",
     "MADOS-20FA": "A short M8 nut for a block's face. Push it into the opening in the middle of the face you want a thread "
-                  "in, until it is flush.",
+                  "in, until it is flush. It goes in one way only: its small tab fits the notch on the edge of the opening.",
     "MADOS-20FB": "Holds a plate flat against the side of a block. Its bar goes into the opening in the middle of a "
                   "block's face; the boss left outside sits in the hollow on the pointed side of a plate, which ends up "
                   "level with the block's face.",

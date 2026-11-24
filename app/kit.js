@@ -66,6 +66,7 @@ export function transformPort(p, pose) {
   const out = { ...p, pos: applyPose(pose, p.pos), normal: matVec(pose.r, p.normal), d: matVec(pose.r, p.d) };
   if (p.open) out.open = turned(p.open, pose.r);
   if (p.webs) out.webs = turned(p.webs, pose.r);
+  if (p.thread) out.thread = diagonal(matVec(pose.r, p.thread));
   return out;
 }
 
@@ -81,11 +82,58 @@ function webFits(a, b) {
   return (stud.webs ?? []).every((w) => (hole.open ?? []).some((o) => vecNear(o, w, 1e-6)));
 }
 
-// A threaded hole takes its stud at any quarter turn, so its direction d does not matter.
+// The thread in a hole starts at one place round it, and a block is cut so that the threads
+// of all its faces belong together (the author marks it with a notch on each face).  A
+// threaded hole says which of the block's four corner-to-corner diagonals its thread
+// follows (thread: three numbers of 1 or -1, the first positive); so does a stud with a
+// thread of its own.  The two go together when the diagonals are the same; a smooth stud
+// goes in any way.  [src/mados_kit/joints.py, hole_thread, has the measurements]
+export const diagonal = (v) => { const w = v.map((c) => Math.round(c) + 0); return w[0] > 0 ? w : w.map((c) => -c + 0); };
+export const threadFits = (a, b) => !a.thread || !b.thread || vecNear(a.thread, b.thread, 1e-6);
+
+// A threaded hole's direction d does not matter: a smooth stud goes in at any quarter turn,
+// a threaded one where the threads meet.
 export function mates(a, b) {
   return isPlug(a) !== isPlug(b) && !a.passive && !b.passive && sameSystem(a, b) && vecNear(a.pos, b.pos, POS_TOL) && opposite(a.normal, b.normal)
-    && (ROUND.has(a.system) ? webFits(a, b) : parallel(a.d, b.d));
+    && (ROUND.has(a.system) ? webFits(a, b) && threadFits(a, b) : parallel(a.d, b.d));
 }
+
+// The ways a part can be turned that leave it the same part in the same place: its joints
+// and the room it takes up fall onto themselves, and only its threads end up turned.  A
+// plain block is the same 24 ways, and its threads are the only thing that tells them
+// apart.  -> poses in the part's own frame, the first of them no turn at all.  Parts that
+// move (hinges, covers) are left as they are.
+const QUARTERS = (() => {
+  const out = [];
+  for (const perm of [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]) {
+    for (let signs = 0; signs < 8; signs++) {
+      const r = [0, 1, 2].map((i) => [0, 1, 2].map((j) => (perm[i] === j ? (signs >> i & 1 ? -1 : 1) : 0)));
+      const det = r[0][0] * (r[1][1] * r[2][2] - r[1][2] * r[2][1]) - r[0][1] * (r[1][0] * r[2][2] - r[1][2] * r[2][0]) + r[0][2] * (r[1][0] * r[2][1] - r[1][1] * r[2][0]);
+      if (det > 0) out.push(r);
+    }
+  }
+  return out.sort((x, y) => (x.every((row, i) => row[i] === 1) ? -1 : y.every((row, i) => row[i] === 1) ? 1 : 0));
+})();
+const sameWaysOf = new WeakMap();
+export function sameWays(part) {
+  if (sameWaysOf.has(part)) return sameWaysOf.get(part);
+  let ways = [IDENTITY];
+  const ports = part.bodies.length === 1 && !part.joints.length ? part.bodies[0].ports : [];
+  if (ports.some((p) => p.thread)) {
+    const list = (v) => (v ?? []).map((w) => w.join(",")).sort().join(";");
+    const said = (p) => [p.kind, posKey(p.pos), p.normal.map((c) => Math.round(c)).join(","), p.system ?? "", p.strength ?? "", p.passive ? 1 : 0,
+      ROUND.has(p.system) ? "" : diagonalless(p.d), list(p.open), list(p.webs)].join("|");
+    const cubes = (pose) => [...voxelKeys(part, pose)].sort().join(" ");
+    const centre = ports.reduce((sum, p) => add(sum, p.pos), [0, 0, 0]).map((v) => v / ports.length);
+    const here = ports.map(said).sort().join("\n"), room = cubes(IDENTITY);
+    ways = QUARTERS.map((r) => ({ r, t: sub(centre, matVec(r, centre)) }))
+      .filter((pose) => ports.map((p) => said(transformPort(p, pose))).sort().join("\n") === here && cubes(pose) === room);
+  }
+  sameWaysOf.set(part, ways);
+  return ways;
+}
+// A direction that means the same as its opposite, written one way.
+const diagonalless = (d) => { const w = d.map((c) => Math.round(c * 1e4) / 1e4 + 0); const first = w.find((c) => Math.abs(c) > 1e-9) ?? 1; return (first > 0 ? w : w.map((c) => -c + 0)).join(","); };
 
 export const posKey = (pos) => `${Math.round(pos[0] * 100)},${Math.round(pos[1] * 100)},${Math.round(pos[2] * 100)}`;
 
