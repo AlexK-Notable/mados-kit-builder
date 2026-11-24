@@ -52,6 +52,7 @@ export class Scene {
     this.items = [];
     this.nextId = 1;
     this.scale = 1;
+    this.fit = 0;                    // how far every joint in the build is from the strength the author recommends (see strengthOf)
     this.title = "";
     this.kept = new WeakMap();       // item -> what has been worked out about it where it stands (see facts)
     this.seen = { items: null, rows: [], answers: new Map() };     // the build as it was when its answers were worked out (see answer)
@@ -101,12 +102,51 @@ export class Scene {
   }
   partOf(item) { return this.parts.get(item.name); }
 
-  add(name, pose, angles = null) {
+  add(name, pose, angles = null, fit = null) {
     const part = this.parts.get(name);
     if (!part) throw new Error(`unknown part ${name}`);
     const item = { id: this.nextId++, name, pose, angles: angles ?? part.joints.map(() => 0) };
+    if (Number.isInteger(fit) && part.fit) item.fit = fit;
     this.items.push(item);
     return item;
+  }
+
+  // ---------------------------------------------------------------- joint strength
+  // The author publishes every part that grips at ten strengths, 0 (loosest) to 9, and
+  // recommends one of them for each part: a short twist block at 1, a long one at 4.
+  // Which suits a printer and filament is a step or two either side of that, the same way
+  // for every part, so a build has one setting, `fit`: how far from the recommended
+  // strength its joints are.  A part can have its own, for a joint that is to hold harder.
+
+  // The strengths a part can be printed at, in order; [] for a part that has none.
+  strengthsOf(part) {
+    if (!part.fit) return [];
+    if (part.print.plugs) return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    return [part.fit.made, ...Object.keys(part.print.strengths ?? {}).map(Number)].sort((a, b) => a - b);
+  }
+
+  // The strength a part of this kind is printed at with this much fit: the recommended one
+  // moved by it, kept to what the part can be printed at.
+  strengthAt(part, fit) {
+    const can = this.strengthsOf(part);
+    if (!can.length) return null;
+    const want = Math.min(can.at(-1), Math.max(can[0], part.fit.recommended + fit));
+    return can.reduce((best, s) => (Math.abs(s - want) < Math.abs(best - want) ? s : best));
+  }
+
+  // The fit an item has: its own, or the build's.
+  fitOf(item) { return item.fit ?? this.fit; }
+
+  // The strength an item is printed at, or null for a part without strengths.
+  strengthOf(item) { return this.strengthAt(this.partOf(item), this.fitOf(item)); }
+
+  // Give items their own fit, or (null) hand them back to the build's.
+  setFit(ids, fit) {
+    for (const id of ids) {
+      const item = this.get(id);
+      if (!item || !this.partOf(item).fit) continue;
+      if (fit == null) delete item.fit; else item.fit = fit;
+    }
   }
 
   remove(id) { this.items = this.items.filter((it) => it.id !== id); }
@@ -209,7 +249,7 @@ export class Scene {
     const inv = kit.inversePose(lead.pose);
     return ids.map((id) => {
       const it = this.get(id);
-      return { id, name: it.name, angles: it.angles.slice(), rel: clean(kit.compose(inv, it.pose)) };
+      return { id, name: it.name, angles: it.angles.slice(), rel: clean(kit.compose(inv, it.pose)), ...(it.fit != null ? { fit: it.fit } : {}) };
     });
   }
 
@@ -453,7 +493,7 @@ export class Scene {
         it.pose = world; it.angles = m.angles.slice();
         return it.id;
       }
-      return this.add(m.name, world, m.angles.slice()).id;
+      return this.add(m.name, world, m.angles.slice(), m.fit).id;
     });
   }
 
@@ -597,20 +637,24 @@ export class Scene {
   }
 
   // ---------------------------------------------------------------- summary, save, load
+  // What to print: one row for each kind of part at each strength it is used at.
   bom() {
     const rows = new Map();
     for (const it of this.items) {
       const part = this.partOf(it);
-      const row = rows.get(it.name) ?? { name: it.name, label: part.label, category: part.category, quantity: 0 };
+      const strength = this.strengthOf(it);
+      const key = `${it.name}@${strength}`;
+      const row = rows.get(key) ?? { name: it.name, strength, label: part.label, category: part.category, quantity: 0, ids: [] };
       row.quantity += 1;
-      rows.set(it.name, row);
+      row.ids.push(it.id);
+      rows.set(key, row);
     }
-    return [...rows.values()].sort((a, b) => a.label.localeCompare(b.label));
+    return [...rows.values()].sort((a, b) => a.label.localeCompare(b.label) || a.strength - b.strength);
   }
 
   toJSON() {
-    return { format: "mados-kit build", version: 1, scale: this.scale, ...(this.title ? { title: this.title } : {}),
-             items: this.items.map((it) => ({ name: it.name, pose: it.pose, angles: it.angles })) };
+    return { format: "mados-kit build", version: 1, scale: this.scale, ...(this.fit ? { fit: this.fit } : {}), ...(this.title ? { title: this.title } : {}),
+             items: this.items.map((it) => ({ name: it.name, pose: it.pose, angles: it.angles, ...(it.fit != null ? { fit: it.fit } : {}) })) };
   }
 
   load(data) {
@@ -620,8 +664,9 @@ export class Scene {
     this.items = [];
     this.nextId = 1;
     this.scale = data.scale ?? 1;
+    this.fit = Number.isInteger(data.fit) ? Math.min(9, Math.max(-9, data.fit)) : 0;
     this.title = typeof data.title === "string" ? data.title.slice(0, 80) : "";
-    for (const it of data.items) this.add(it.name, it.pose, it.angles);
+    for (const it of data.items) this.add(it.name, it.pose, it.angles, Number.isInteger(it.fit) ? Math.min(9, Math.max(-9, it.fit)) : null);
   }
 }
 

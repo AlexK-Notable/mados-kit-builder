@@ -166,6 +166,16 @@ would cost. "Done" entries stay here with the numbers they produced.
   take that long to reach a visitor.
 - **Tests on every push** (2026-11-21). The app's tests run on GitHub for every push and
   pull request. The browser checks still run by hand.
+- **Ten joint strengths without ten files a part** (2026-11-23). The author's files of
+  every part at every strength come to about 1.5 GB. The builder keeps each part once
+  and adds, for all of them together: his 50 plug shapes (5 kinds at 10 strengths,
+  375 KB), 377 patches where a strength of a part differs besides its plugs, mostly the
+  engraved digit (957 KB), and his own file of each other strength for the joiners,
+  which have no plug to swap (81 files, 1.48 MB). `app/data` went from 7.0 MB to
+  10.4 MB. None of it is fetched until a part is downloaded at another strength than it
+  is kept at. A first visit pays 12 KB more: the catalogue, which now says where every
+  plug stands, is 47 KB gzipped where it was 35. Making a part at another strength
+  takes the browser about 0.2 s [measured: three strengths of MADOS-20AA in 0.5 s].
 
 ## Open
 
@@ -242,10 +252,10 @@ Ordered roughly by what they would buy for the effort.
 21. **Custom parts in their own process.** `serve.py` runs the CAD generator inside the
     request; a part that fails badly can take the launcher with it. Run it as a child
     process with a time limit.
-22. **The author's own print files.** Print meshes are tessellated here from his STEP
-    files. His exported STLs are what people normally print. Shipping those (compacted)
-    would make the downloads byte-for-byte what he tested, at the cost of sectioning them
-    separately.
+22. **The author's own print files.** Done 2026-11-23: a part of his is printed from his
+    recommended STL, kept in sections like any other mesh and no further than 0.045 mm
+    from his file [`tools/check_strength.py`]. Before that the print meshes came from
+    his STEP files, which are drawn one or two strengths tighter than he recommends.
 
 ### Added 2026-11-21
 

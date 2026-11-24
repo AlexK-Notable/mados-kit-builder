@@ -36,6 +36,7 @@ from mados_kit import joints as K
 from mados_kit import parts as P
 from mados_kit import meshfile
 from mados_kit import store
+from mados_kit import strength as S
 
 OUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "data"))
 SECTION = 2 * K.CELL          # mm: one face tile
@@ -83,6 +84,9 @@ FAMILIES = [
      "params": [{"key": "length", "label": "Length", "min": 40, "max": 300, "step": 20}],
      "axes": [{"param": "length", "axis": 1, "origin": -0.5}],
      "official": {"20": "MADOS-20AA", "40": "MADOS-20AB", "60": "MADOS-20AC", "80": "MADOS-20AD", "100": "MADOS-20AE", "200": "MADOS-20AI"},
+     # recommended: the strength of the author's recommended file for the longest of his twist blocks that is no longer
+     # than the part [his file names: 20AA (20 mm) and 20AB (40) "-1_Recommended", 20AC (60) "-2", 20AD (80) and 20AE (100) "-3", 20AI (200) "-4"]
+     "fit": {"made": 3, "by": "length", "recommended": [[0, 1], [60, 2], [80, 3], [200, 4]]},
      "make": lambda length: P.twist_block(length, 3), "reference": [{"length": 40}, {"length": 80}], "check": [{"length": 60}],
      "note": "Four twist plugs on one end: push them into four sockets and turn until they lock. Its other faces have sockets."},
     {"id": "double_twist", "name": "twist_{length}_s3_ccw", "label": "Double twist block {length} mm (generated)", "category": "Twist blocks",
@@ -90,6 +94,8 @@ FAMILIES = [
      "params": [{"key": "length", "label": "Length", "min": 40, "max": 300, "step": 20}],
      "axes": [{"param": "length", "axis": 1, "origin": -0.5}],
      "official": {"20": "MADOS-20AT", "80": "MADOS-20AU", "100": "MADOS-20AV"},
+     # as for the twist block: his double twist blocks follow it where he makes them [20AT (20 mm) "-1_Recommended", 20AU (80) and 20AV (100) "-3"]
+     "fit": {"made": 3, "by": "length", "recommended": [[0, 1], [60, 2], [80, 3], [200, 4]]},
      "make": lambda length: P.twist_block(length, 3, "ccw"), "reference": [{"length": 40}, {"length": 80}], "check": [{"length": 60}],
      "note": "Twist plugs on both ends, so it joins two blocks end to end. The second end locks by turning the other way."},
     {"id": "cover", "name": "cover_{width}x{length}_s4", "label": "Cover {width} x {length} mm (generated)", "category": "Covers",
@@ -98,6 +104,9 @@ FAMILIES = [
                 {"key": "length", "label": "Length", "min": 20, "max": 300, "step": 20}],
      "axes": [{"param": "width", "axis": 0, "origin": 0.0}, {"param": "length", "axis": 1, "origin": 0.0}],
      "official": {"20x20": "MADOS-20CD", "20x40": "MADOS-20CE", "20x100": "MADOS-20CH"},
+     # recommended: by how many plugs the cover has, which is what makes it harder to press on
+     # [his file names: 20CD (4 plugs) and 20CE (8) "-2_Recommended", 20CH (20) "-1"; nothing of his lies between 8 and 20]
+     "fit": {"made": 4, "by": "plugs", "recommended": [[0, 2], [20, 1]]},
      "make": lambda width, length: P.cover(width, length, 4),
      "reference": [{"width": w, "length": l} for w in (20, 40, 80) for l in (20, 40, 80)],
      "check": [{"width": 60, "length": 60}, {"width": 20, "length": 60}, {"width": 60, "length": 40}],
@@ -266,7 +275,22 @@ def spans_of(family, size):
 def described(family, size):
     part = family["make"](**size)
     whole, _ = A.tidy(P.mesh_of(part))
-    return A.describe(part, "", family["category"]), whole
+    entry = A.describe(part, "", family["category"])
+    entry["plugs"] = S.as_data(S.placements(whole, part["bodies"]))       # where its plugs stand, for other strengths (strength.py)
+    return entry, whole
+
+
+def plug_at(plug):
+    # the middle of the plug's cell on the face it stands on: where the tool's own cell (x -10..0, z 0..10) is put
+    t = np.array(plug[3]).reshape(3, 4)
+    return t @ np.array([-K.CELL / 2, 0.0, K.CELL / 2, 1.0])
+
+
+def plug_moved(plug, by):
+    t = list(plug[3])
+    for k in range(3):
+        t[4 * k + 3] = round(float(t[4 * k + 3] + by[k]), 6)
+    return [plug[0], plug[1], plug[2], t]
 
 
 def cell_of(point, spans):
@@ -302,7 +326,8 @@ for family in FAMILIES:
                     ports.append({**p, "pos": [round(float(v), 4) for v in np.array(p["pos"]) - origin]})
             voxels = [[round(float(v), 4) for v in np.array(c) - origin] for c in body["voxels"] if cell_of(c, spans) == key]
             box = section.bounding_box()
-            made[role] = {"tile": keep(section), "ports": ports, "voxels": voxels, "bbox": [round(float(v), 4) for v in box]}
+            plugs = [plug_moved(q, -origin) for q in entry["plugs"] if cell_of(plug_at(q), spans) == key]
+            made[role] = {"tile": keep(section), "ports": ports, "voxels": voxels, "bbox": [round(float(v), 4) for v in box], "plugs": plugs}
     wanted = {",".join(r) for r in itertools.product(*[ROLE_NAMES if ax["param"] != "none" else ("single",) for ax in family["axes"]])}
     if family["params"][0]["min"] > SECTION:               # a size of one cell is the author's part, never a generated one
         wanted = {r for r in wanted if "single" not in r.split(",")}
@@ -311,7 +336,7 @@ for family in FAMILIES:
     def assemble(size):
         spans = spans_of(family, size)
         names = [roles(count) for _, _, count in spans]
-        ports, voxels, placed = [], [], []
+        ports, voxels, placed, plugs = [], [], [], []
         for key in itertools.product(*[range(count) for _, _, count in spans]):
             role = made[",".join(names[a][k] for a, k in enumerate(key))]
             origin = np.zeros(3)
@@ -320,12 +345,15 @@ for family in FAMILIES:
             ports += [{**p, "pos": [float(v) for v in np.array(p["pos"]) + origin]} for p in role["ports"]]
             voxels += [tuple(float(v) for v in np.array(c) + origin) for c in role["voxels"]]
             placed.append([role["tile"], origin.tolist()])
-        return ports, voxels, placed
+            plugs += [plug_moved(q, origin) for q in role["plugs"]]
+        return ports, voxels, placed, plugs
 
     for size in family["check"]:
         entry, whole = described(family, size)
-        ports, voxels, placed = assemble(size)
+        ports, voxels, placed, plugs = assemble(size)
         body = entry["bodies"][0]
+        plug_key = lambda q: json.dumps([q[0], q[1], q[2], [round(v, 3) for v in q[3]]])
+        same_plugs = sorted(map(plug_key, plugs)) == sorted(map(plug_key, entry["plugs"]))
         same_ports = sorted(map(port_key, ports)) == sorted(map(port_key, body["ports"]))
         same_cubes = sorted(tuple(round(v, 3) for v in c) for c in voxels) == sorted(tuple(round(v, 3) for v in c) for c in body["voxels"])
         back = rebuilt(placed)
@@ -335,6 +363,7 @@ for family in FAMILIES:
             mine, theirs = set(map(port_key, ports)), set(map(port_key, body["ports"]))
             print("        only in the sections:", sorted(mine - theirs)[:6], "\n        only in the generator's:", sorted(theirs - mine)[:6])
         check(same_ports, f"{text}: the same {len(body['ports'])} joints as the generator gives")
+        check(same_plugs, f"{text}: the same {len(entry['plugs'])} plugs in the same places, for other strengths")
         check(same_cubes, f"{text}: the same {len(body['voxels'])} occupied cubes")
         check(off < APART_MAX, f"{text}: the same solid, no point more than {off * 1000:.1f} microns off the generator's ({len(placed)} sections)")
     families.append({k: v for k, v in family.items() if k not in ("make", "reference", "check")} | {"roles": made})
@@ -348,6 +377,21 @@ for entry in list(catalog["parts"]):
         dropped.append(entry["name"])
 catalog["families"] = families
 catalog["section"] = SECTION
+
+# sections nothing uses any more (a part was rebuilt and its end is now another shape) leave the list
+used = sorted({i for entry in catalog["parts"] for i, _ in entry["print"].get("tiles", [])}
+              | {role["tile"] for family in families for role in family["roles"].values()})
+if len(used) < len(tiles):
+    number = {old: new for new, old in enumerate(used)}
+    for entry in catalog["parts"]:
+        for where in [entry["print"]] + entry["bodies"]:
+            if "tiles" in where:
+                where["tiles"] = [[number[i], offset] for i, offset in where["tiles"]]
+    for family in families:
+        for role in family["roles"].values():
+            role["tile"] = number[role["tile"]]
+    print(f"{len(tiles) - len(used)} sections are no longer used and leave the list")
+    catalog["tiles"] = tiles = [tiles[i] for i in used]
 
 if failures:
     print(f"\nFAILED: {len(failures)} check(s); nothing was written to the catalogue\n   " + "\n   ".join(failures))

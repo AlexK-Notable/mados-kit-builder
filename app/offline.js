@@ -11,8 +11,11 @@ export function dataFiles(catalog) {
     if (part.category === "Custom") continue;            // made to order by the launcher on this computer
     for (const body of part.bodies) if (body.mesh) out.add(body.mesh);
     if (part.print.mesh) out.add(part.print.mesh);
+    for (const rel of Object.values(part.print.strengths ?? {})) out.add(rel);      // a joiner's other strengths
+    for (const kept of Object.values(part.print.patches ?? {})) out.add(kept.mesh);   // the strength number engraved on it
     if (part.thumb) out.add(part.thumb);
   }
+  for (const rels of Object.values(catalog.plugs ?? {})) for (const rel of rels) out.add(rel);     // the plugs of every strength
   for (const tile of catalog.tiles ?? []) { out.add(tile.mesh); out.add(tile.print); }
   return [...out];
 }

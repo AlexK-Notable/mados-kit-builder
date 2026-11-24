@@ -62,6 +62,8 @@ plain checkout. `pip install -e .[cad]` also works and brings the CAD packages.
     python tools/check_kit.py             # the rule against real meshes; minutes, needs requirements.txt and the author's files
     python tools/build_app_data.py [NAME...]   # rebuild app/data (about 15 minutes for everything)
     python tools/build_tiles.py           # cut repeating parts into sections and check them (about 20 minutes)
+    python tools/build_patches.py          # keep what each strength of a part has besides its plugs (the engraved digit); needs all of the author's files
+    python tools/check_strength.py        # every part at every strength against the author's own file of that strength
     python3 tools/publish.py _site        # the copy that goes on a web host (seconds, needs nothing)
 
 The interface checks and the README pictures run in a real browser; the commands are at
@@ -90,13 +92,22 @@ cut, and changing to a newer version when asked.
 6. **The author's parts stay the author's.** They keep his names and part numbers, and a
    download of one of his parts is his shape. Parts this project makes are labelled
    "(generated)".
-7. **Words on screen are for beginners.** Plain sentences, no jargon, and when the builder
+7. **Every strength is the author's.** A part is kept once, as his recommended file, and
+   made at another strength by swapping his plug tools and then the blocks of his file
+   wherever it still differs (the engraved strength digit, above all) (`src/mados_kit/strength.py`, `app/solid.js`); a joiner uses
+   his file of that strength whole. `tools/check_strength.py` compares each result with
+   his own file, which must be nearer to it than to the part made a strength lower or higher, and writes the
+   volumes the app's tests check `solid.js` against. The order is `build_app_data.py`,
+   `build_tiles.py`, `build_patches.py`, `check_strength.py`: rebuilding a part drops its
+   patches. What is recommended for a generated size is written down with its source in
+   `tools/build_tiles.py` and `catalogue.GENERATED_RECOMMENDED`.
+8. **Words on screen are for beginners.** Plain sentences, no jargon, and when the builder
    refuses something it says why and what would work instead.
-8. **Nothing personal in the repository.** No names, home paths, machine names or
+9. **Nothing personal in the repository.** No names, home paths, machine names or
    accounts in code, comments, data or commit messages.
-9. **Pictures follow the interface.** After a visible change, retake the README pictures
+10. **Pictures follow the interface.** After a visible change, retake the README pictures
    (`tools/screenshots.js`) and update the README text.
-10. **Ideas for speed, size and steadiness** go in `docs/optimisation-notes.md`, done or
+11. **Ideas for speed, size and steadiness** go in `docs/optimisation-notes.md`, done or
     not.
 
 ## Things that have already gone wrong once

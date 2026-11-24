@@ -9,8 +9,9 @@ import { Scene } from "./scene.js";
 import * as stl from "./stl.js";
 import * as meshFile from "./mesh.js";
 import * as families from "./families.js";
-import { joined } from "./solid.js";
+import { joined, strengthSteps } from "./solid.js";
 import { makeZip } from "./zip.js";
+import * as plate from "./plate.js";
 import * as share from "./share.js";
 import * as offline from "./offline.js";
 
@@ -83,6 +84,26 @@ selectionBox.material.depthTest = false;       // seen through whatever is in fr
 selectionBox.material.transparent = true;
 selectionBox.renderOrder = 9;
 world.add(selectionBox);
+// when several parts are selected, each gets the same outline: all of them as one set of lines
+const groupBoxes = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x1f9d6c, depthTest: false, transparent: true }));
+groupBoxes.visible = false;
+groupBoxes.frustumCulled = false;
+groupBoxes.renderOrder = 9;
+world.add(groupBoxes);
+const BOX_EDGES = [0, 1, 1, 3, 3, 2, 2, 0, 4, 5, 5, 7, 7, 6, 6, 4, 0, 4, 1, 5, 2, 6, 3, 7];     // corner k is (k & 1, k & 2, k & 4) of low and high
+function outlineGroup() {
+  const items = [...group].map((id) => scene.get(id)).filter((item) => item && !(drag && drag.hidden.includes(item.id)));
+  groupBoxes.visible = items.length > 0;
+  if (!items.length) return;
+  const lines = new Float32Array(items.length * 72);
+  items.forEach((item, n) => {
+    const { min, max } = scene.itemBox(item);
+    BOX_EDGES.forEach((corner, e) => {
+      for (let k = 0; k < 3; k++) lines[n * 72 + e * 3 + k] = corner & (1 << k) ? max[k] + 0.6 : min[k] - 0.6;
+    });
+  });
+  groupBoxes.geometry.setAttribute("position", new THREE.BufferAttribute(lines, 3));
+}
 
 const camera = new THREE.PerspectiveCamera(38, 1, 2, 6000);
 camera.up.set(0, 0, 1);
@@ -138,6 +159,9 @@ const shapes = new Map();    // "part:body" -> {points, index}: its points, and 
 const meshJobs = new Map();  // part name -> promise of its meshes being loaded
 const views = new Map();     // item id -> {group, meshes, material, name}
 let selected = null;         // item id
+let group = new Set();       // the items selected together, when there are two or more; `selected` is then null
+let lasso = null;            // the box being dragged out to select several parts
+let boxMode = false;         // the next drag on empty space draws that box (the Select button; Shift does the same)
 let hovered = null;          // item id under the mouse
 let marked = new Set();      // item ids lit because their row in the parts list is pointed at
 let drag = null;             // the drag in progress
@@ -210,6 +234,18 @@ function sizeOf(part, scale = 1) {
   const b = part.print.bbox;
   return [b[3] - b[0], b[4] - b[1], b[5] - b[2]].map((v) => Math.round(v * scale * 10) / 10);
 }
+// What is selected, one part or several.
+const chosenIds = () => (group.size ? [...group] : selected != null ? [selected] : []);
+function choose(ids) {
+  const live = [...new Set(ids)].filter((id) => scene.get(id));
+  if (live.length > 1) { group = new Set(live); selected = null; } else { group = new Set(); selected = live[0] ?? null; }
+}
+
+// The name a part's print file has: the author's own way of writing a strength (MADOS-20AA-3),
+// and the same for a generated part, whose name says the strength it was first made at.
+const printName = (part, strength) => (strength == null ? part.name : `${part.name.replace(/_s\d(?=_|$)/, "")}-${strength}`);
+const fitWords = (fit) => (fit === 0 ? "as the author recommends" : `${Math.abs(fit)} ${fit > 0 ? "tighter" : "looser"} than the author recommends`);
+
 const fineLayers = (part) => part.print.layer && part.print.layer !== "0.2";
 const grams = (mm3) => mm3 * PLA_G_PER_MM3;
 const gramsText = (g) => (g < 10 ? `${g.toFixed(1)} g` : `${Math.round(g)} g`);
@@ -229,7 +265,16 @@ const sectionsOf = (tiles, which) => Promise.all(tiles.map(async ([i, offset]) =
 const bodyShape = async (body) => (body.mesh ? meshFile.fetchMesh(`data/${body.mesh}`) : meshFile.merged(await sectionsOf(body.tiles, "mesh")));
 
 // The triangles a part is printed from.  Sections are joined into one closed solid.
-async function printShape(part) {
+// At a strength other than the one the part is stored at, a joiner has the author's own
+// file of that strength, and any other part gets his plugs of that strength in place of
+// the ones it has, and that strength's number engraved on it (solid.js).
+async function printShape(part, strength = null) {
+  const other = strength != null && part.fit && strength !== part.fit.made;
+  if (other && part.print.strengths?.[strength]) return meshFile.fetchTriangles(`data/${part.print.strengths[strength]}`);
+  if (other && part.print.plugs) {
+    const whole = part.print.mesh ? [await meshFile.fetchMesh(`data/${part.print.mesh}`)] : await sectionsOf(part.print.tiles, "print");
+    return joined(whole, await strengthSteps(part.print, strength, section, catalog));
+  }
   if (part.print.mesh) return meshFile.fetchTriangles(`data/${part.print.mesh}`);
   return joined(await sectionsOf(part.print.tiles, "print"));
 }
@@ -315,7 +360,7 @@ function syncViews() {
       views.set(item.id, view);
     }
     poseBodies(view.meshes, part, item.pose, item.angles);
-    const lit = marked.has(item.id) ? 0x2c6f9a : item.id === selected ? 0x16513e : item.id === hovered ? 0x33332e : 0x000000;
+    const lit = marked.has(item.id) ? 0x2c6f9a : item.id === selected || group.has(item.id) ? 0x16513e : item.id === hovered ? 0x33332e : 0x000000;
     view.material.emissive.setHex(lit);
     view.material.emissiveIntensity = 0.6;
     const faint = buried && item.id !== selected;
@@ -329,6 +374,7 @@ function syncViews() {
     const box = scene.payloadBox([{ name: chosen.name, angles: chosen.angles, rel: chosen.pose }], kit.IDENTITY);
     selectionBox.box.set(new THREE.Vector3(...box.min).subScalar(0.6), new THREE.Vector3(...box.max).addScalar(0.6));
   }
+  outlineGroup();
   const bounds = boundsOf();
   reach = bounds ? bounds.radius : 0;
   middle = bounds ? bounds.centre : new THREE.Vector3(0, 0, 20);
@@ -339,6 +385,8 @@ function syncViews() {
 
 function refresh() {
   if (selected != null && !scene.get(selected)) selected = null;
+  if (selected != null) group = new Set();
+  else choose([...group]);
   if (hovered != null && !scene.get(hovered)) hovered = null;
   marked = new Set([...marked].filter((id) => scene.get(id)));
   syncViews();
@@ -351,7 +399,7 @@ function refresh() {
   $("empty").hidden = scene.items.length > 0 || Boolean(drag) || Boolean(waiting);
   const toggle = $("panel-toggle");
   toggle.hidden = !scene.items.length;
-  toggle.textContent = selected != null ? scene.partOf(scene.get(selected)).label : `Parts list · ${scene.items.length}`;
+  toggle.textContent = selected != null ? scene.partOf(scene.get(selected)).label : group.size ? `${group.size} parts selected` : `Parts list · ${scene.items.length}`;
   if (!scene.items.length) document.body.classList.remove("side-open");
   store.set(STORE, JSON.stringify(scene.toJSON()));
   idleHint();
@@ -369,7 +417,7 @@ function restore(from, to) {
   if (!from.length) return hint(from === undoStack ? "Nothing to undo" : "Nothing to redo", false, 1500);
   to.push(JSON.stringify(scene.toJSON()));
   scene.load(JSON.parse(from.pop()));
-  selected = null;
+  selected = null; group = new Set();
   notes = [];
   refresh();
   hint(from === undoStack ? "Undone. Ctrl+Shift+Z redoes it." : "Redone", false, 1800);
@@ -817,7 +865,66 @@ canvas.addEventListener("pointerdown", (event) => {
   pending = { id: hit ? hit.id : null, x: event.clientX, y: event.clientY, pointerId: event.pointerId, touch: event.pointerType !== "mouse" };
   leaveFields();
   if (hit) { controls.enabled = false; fly = null; }   // a press on a part moves the part, not the camera
+  else if ((event.shiftKey || boxMode) && scene.items.length) {      // on empty space: drag out a box round the parts to select
+    controls.enabled = false; fly = null;
+    lasso = { x0: event.clientX, y0: event.clientY, x: event.clientX, y: event.clientY, pointerId: event.pointerId, adds: event.shiftKey && !boxMode ? chosenIds() : [] };
+    pending = null;
+  }
 }, true);
+
+// ---------------------------------------------------------------- selecting several parts
+// A box dragged out over the view selects every part whose middle is inside it.  The middle,
+// not any corner: a part mostly outside the box is not what was meant, and a long beam
+// that only pokes into it would otherwise always come along.
+function inLasso() {
+  const rect = canvas.getBoundingClientRect();
+  const [left, right] = [Math.min(lasso.x0, lasso.x), Math.max(lasso.x0, lasso.x)];
+  const [top, bottom] = [Math.min(lasso.y0, lasso.y), Math.max(lasso.y0, lasso.y)];
+  const at = new THREE.Vector3();
+  return scene.items.filter((item) => {
+    const box = scene.itemBox(item);
+    at.set((box.min[0] + box.max[0]) / 2, (box.min[1] + box.max[1]) / 2, (box.min[2] + box.max[2]) / 2).project(camera);
+    if (at.z > 1) return false;                          // behind the eye
+    const x = rect.left + (at.x + 1) / 2 * rect.width, y = rect.top + (1 - at.y) / 2 * rect.height;
+    return x >= left && x <= right && y >= top && y <= bottom;
+  }).map((item) => item.id);
+}
+
+function drawLasso() {
+  const box = $("lasso");
+  box.hidden = !lasso;
+  if (!lasso) return;
+  const rect = $("stage").getBoundingClientRect();
+  box.style.left = `${Math.min(lasso.x0, lasso.x) - rect.left}px`;
+  box.style.top = `${Math.min(lasso.y0, lasso.y) - rect.top}px`;
+  box.style.width = `${Math.abs(lasso.x - lasso.x0)}px`;
+  box.style.height = `${Math.abs(lasso.y - lasso.y0)}px`;
+  marked = new Set(inLasso());
+  syncViews();
+}
+
+function endLasso(commit) {
+  const picked = commit && Math.hypot(lasso.x - lasso.x0, lasso.y - lasso.y0) > DRAG_START ? inLasso() : null;
+  const adds = lasso.adds;
+  lasso = null;
+  marked = new Set();
+  controls.enabled = true;
+  setBoxMode(false);
+  drawLasso();
+  if (!picked) return refresh();
+  choose([...adds, ...picked]);
+  if (chosenIds().length && narrow()) document.body.classList.add("side-open");
+  refresh();
+  const n = chosenIds().length;
+  hint(n ? `${plural(n, "part")} selected. Their joint strength can be set together in the panel${n > 1 ? "; Esc lets them go" : ""}` : "No part has its middle inside that box", !n, 3500);
+}
+
+function setBoxMode(on) {
+  boxMode = on;
+  $("box-select").classList.toggle("on", on);
+  $("box-select").setAttribute("aria-pressed", String(on));
+  canvas.classList.toggle("boxing", on);
+}
 
 const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, 0, 25);
@@ -845,6 +952,12 @@ function updateHover(x, y) {
 }
 
 window.addEventListener("pointermove", (event) => {
+  if (lasso) {
+    if (event.pointerId !== lasso.pointerId) return;
+    lasso.x = event.clientX; lasso.y = event.clientY;
+    if (!lasso.queued) { lasso.queued = true; requestAnimationFrame(() => { if (lasso) { lasso.queued = false; drawLasso(); } }); }
+    return;
+  }
   if (drag) {
     if (drag.pointerId != null && event.pointerId !== drag.pointerId) return;
     drag.x = event.clientX; drag.y = event.clientY;
@@ -900,6 +1013,11 @@ window.addEventListener("pointermove", (event) => {
 });
 
 function releasePointer(event, cancelled) {
+  if (lasso) {
+    if (event.pointerId !== lasso.pointerId) return;
+    lasso.x = event.clientX; lasso.y = event.clientY;
+    return endLasso(!cancelled);
+  }
   if (drag) {
     if (drag.pointerId != null && event.pointerId !== drag.pointerId) return;
     drag.x = event.clientX; drag.y = event.clientY;
@@ -918,9 +1036,15 @@ function releasePointer(event, cancelled) {
   }
   if (pending && event.pointerId === pending.pointerId) {
     if (!cancelled && Math.hypot(event.clientX - pending.x, event.clientY - pending.y) <= DRAG_START_TOUCH) {
-      selected = pending.id;
-      if (selected != null && narrow()) document.body.classList.add("side-open");
-      if (selected == null) document.body.classList.remove("side-open");
+      if (pending.id != null && (event.shiftKey || event.ctrlKey || event.metaKey)) {     // add it to what is selected, or take it out
+        const now = chosenIds();
+        choose(now.includes(pending.id) ? now.filter((id) => id !== pending.id) : [...now, pending.id]);
+      } else {
+        group = new Set();
+        selected = pending.id;
+      }
+      if (chosenIds().length && narrow()) document.body.classList.add("side-open");
+      if (!chosenIds().length) document.body.classList.remove("side-open");
       refresh();
     }
     pending = null;
@@ -965,6 +1089,7 @@ window.addEventListener("keydown", (event) => {
     else if (key === "enter" && event.target === $("title")) event.target.blur();
     return;
   }
+  if (lasso) { if (key === "escape") endLasso(false); event.preventDefault(); return; }
   if (drag) {
     if (key === "r") turnByHand("spin");
     else if (key === "f") turnByHand("tip");
@@ -979,10 +1104,13 @@ window.addEventListener("keydown", (event) => {
   else if (command && key === "d") copySelected(false);
   else if (command && key === "c") { if (selected == null) return; copied = { id: selected }; hint("Copied. Ctrl+V puts a copy on the floor.", false, 2200); }
   else if (command && key === "v") { if (!copied || !scene.get(copied.id)) return; selected = copied.id; copySelected(false); }
+  else if (command && key === "a") { choose(scene.items.map((it) => it.id)); refresh(); if (group.size) hint(`All ${group.size} parts selected`, false, 2000); }
   else if (command && key === "s") saveBuild();
   else if (command && key === "o") $("file").click();
   else if (command) return;
   else if (key === "delete" || key === "backspace") removeSelected(false);
+  else if (key === "b" && scene.items.length) { setBoxMode(!boxMode); hint(boxMode ? "Drag a box round the parts to select" : "", false, 2500); }
+  else if ((key === "+" || key === "=" || key === "-") && chosenIds().length) stepStrength(key === "-" ? -1 : 1);
   else if (key === "r") moveSelected("turn");
   else if (key === "f") moveSelected("tip");
   else if (key === "pageup") moveSelected("up");
@@ -994,20 +1122,49 @@ window.addEventListener("keydown", (event) => {
   else if (key === "home" || key === "0") fitView();
   else if (key === "/") $("search").focus();
   else if (key === "?") $("helpbox").showModal();
-  else if (key === "escape") { selected = null; document.body.classList.remove("side-open"); refresh(); }
+  else if (key === "escape") { selected = null; group = new Set(); setBoxMode(false); document.body.classList.remove("side-open"); refresh(); }
   else return;
   event.preventDefault();
 });
 
 // ---------------------------------------------------------------- actions on the selection
 function removeSelected(wholePiece) {
-  if (selected == null) return;
-  const ids = wholePiece ? scene.pieceOf(selected) : [selected];
+  if (!chosenIds().length) return;
+  const ids = group.size ? [...group] : wholePiece ? scene.pieceOf(selected) : [selected];
   checkpoint();
   for (const id of ids) scene.remove(id);
-  selected = null;
+  selected = null; group = new Set();
   refresh();
   hint(`Removed ${ids.length === 1 ? "the part" : plural(ids.length, "part")}. Undo brings ${ids.length === 1 ? "it" : "them"} back.`, false, 2600);
+}
+
+// Make the selected parts' joints one step tighter or looser.  Each part moves to the next
+// strength it can be printed at; one already at the end of its range stays there.
+function stepStrength(step) {
+  const items = chosenIds().map((id) => scene.get(id)).filter((item) => scene.partOf(item).fit);
+  if (!items.length) return hint(chosenIds().length > 1 ? "None of these parts has a strength to set: they only have sockets" : "This part only has sockets, so it has no strength to set", false, 3000);
+  const moves = [];
+  for (const item of items) {
+    const part = scene.partOf(item);
+    const can = scene.strengthsOf(part), now = scene.strengthOf(item);
+    const next = can[can.indexOf(now) + step];
+    if (next != null) moves.push([item.id, next - part.fit.recommended]);
+  }
+  if (!moves.length) return hint(step > 0 ? "Already at the tightest there is" : "Already at the loosest there is", false, 2500);
+  checkpoint();
+  for (const [id, fit] of moves) scene.setFit([id], fit);
+  refresh();
+  const stuck = items.length - moves.length;
+  hint(items.length === 1 ? `Strength ${scene.strengthOf(items[0])}` : `${plural(moves.length, "part")} one step ${step > 0 ? "tighter" : "looser"}${stuck ? `; ${stuck} already at the end of ${stuck === 1 ? "its" : "their"} range` : ""}`, false, 2500);
+}
+
+function strengthAsBuild() {
+  const ids = chosenIds().filter((id) => scene.get(id).fit != null);
+  if (!ids.length) return;
+  checkpoint();
+  scene.setFit(ids, null);
+  refresh();
+  hint(ids.length === 1 ? "This part follows the build's joint strength again" : `${plural(ids.length, "part")} follow the build's joint strength again`, false, 2800);
 }
 
 // A free spot on the floor for a payload, starting at (x, y) and working outwards.
@@ -1178,12 +1335,54 @@ function jointLabel(part, joint, index) {
   return part.joints.length > 1 ? `Fold ${index + 1}` : "Fold";
 }
 
+// The joint strength of what is selected, with its controls.
+function strengthBlock(items) {
+  const with_ = items.filter((item) => scene.partOf(item).fit);
+  if (!with_.length) return items.length > 1 ? `<p class="small">These parts only have sockets, so there is no joint strength to set.</p>` : "";
+  const levels = with_.map((item) => scene.strengthOf(item));
+  const [low, high] = [Math.min(...levels), Math.max(...levels)];
+  const own = with_.filter((item) => item.fit != null).length;
+  const one = with_.length === 1 ? scene.partOf(with_[0]) : null;
+  const can = one ? scene.strengthsOf(one) : null;
+  const fixed = one && can.length < 2;
+  const about = one
+    ? (fixed ? `The author publishes this part at one strength only.` : `0 is the loosest, 9 the tightest. The author recommends ${one.fit.recommended} for this part.`)
+    : `0 is the loosest, 9 the tightest. Each part moves one step from where it is.`;
+  const without = items.length - with_.length;
+  return `
+    <h4>Joint strength</h4>
+    <div class="row strength">
+      ${fixed ? "" : `<button data-do="fit-looser" title="One step looser (-)" ${low === 0 && high === 0 ? "disabled" : ""}>Looser</button>`}
+      <b class="level">${low === high ? low : `${low} to ${high}`}</b>
+      ${fixed ? "" : `<button data-do="fit-tighter" title="One step tighter (+)" ${low === 9 && high === 9 ? "disabled" : ""}>Tighter</button>`}
+    </div>
+    <p class="small">${about}${own ? ` ${with_.length === 1 ? "This part has a strength of its own" : `${own} of these have a strength of their own`}: <button class="link" data-do="fit-build">go back to the build's</button>.` : scene.fit && !fixed ? ` This build is set ${fitWords(scene.fit)}.` : ""}${without ? ` ${without === 1 ? "One part here only has" : `${without} parts here only have`} sockets and nothing to set.` : ""}</p>`;
+}
+
+function drawGroup(box) {
+  const items = [...group].map((id) => scene.get(id));
+  const kinds = new Map();
+  for (const item of items) kinds.set(item.name, (kinds.get(item.name) ?? 0) + 1);
+  const rows = [...kinds].sort((a, b) => b[1] - a[1]);
+  box.innerHTML = `
+    <h2>Selected parts</h2>
+    <h3>${items.length} parts</h3>
+    <ul class="facts">${rows.slice(0, 5).map(([name, n]) => `<li>${n} &times; ${escapeHtml(scene.parts.get(name).label)}</li>`).join("")}${rows.length > 5 ? `<li>and ${plural(rows.length - 5, "more kind")}</li>` : ""}</ul>
+    ${strengthBlock(items)}
+    <div class="row">
+      <button data-do="remove" class="danger" title="Delete">Remove all ${items.length}</button>
+      <button data-do="let-go" title="Esc">Select none</button>
+    </div>
+    <p class="small"><span class="keys-only">Shift-click a part to add it or take it out. </span>To move parts that are joined, drag one of them with Shift held.</p>`;
+}
+
 function drawSelection() {
   const box = $("selection");
+  if (group.size) return drawGroup(box);
   const item = scene.get(selected);
   if (!item) {
     box.innerHTML = scene.items.length
-      ? `<h2>Selected part</h2><p>Click a part in the scene to see what it is and to copy, turn or remove it.</p>`
+      ? `<h2>Selected part</h2><p>Click a part in the scene to see what it is and to copy, turn or remove it.<span class="keys-only"> Hold Shift and drag over empty space to select several.</span></p>`
       : `<h2>Selected part</h2><p>Nothing is selected.</p>`;
     return;
   }
@@ -1212,6 +1411,7 @@ function drawSelection() {
       <button data-do="remove" class="danger" title="Delete, or drag it back onto the list">Remove</button>
     </div>
     ${joints}
+    ${strengthBlock([item])}
     <h4>${piece > 1 ? `Move all ${piece} joined parts` : "Move it"}</h4>
     <div class="row">
       <button data-do="turn" title="R: a quarter turn where it stands">Turn</button>
@@ -1231,6 +1431,10 @@ $("selection").addEventListener("click", (event) => {
   if (!button) return;
   if (button.dataset.joint != null) return setJoint(Number(button.dataset.joint), Number(button.dataset.angle));
   const action = button.dataset.do;
+  if (action === "fit-looser") return stepStrength(-1);
+  if (action === "fit-tighter") return stepStrength(1);
+  if (action === "fit-build") return strengthAsBuild();
+  if (action === "let-go") { group = new Set(); selected = null; return refresh(); }
   if (action === "copy") copySelected(false);
   else if (action === "copy-piece") copySelected(true);
   else if (action === "remove") removeSelected(false);
@@ -1247,7 +1451,8 @@ function totals() {
     rows,
     parts: scene.items.length,
     weight: rows.reduce((sum, row) => sum + grams(row.part.print.volume_mm3) * k * row.quantity, 0),
-    fine: rows.filter((row) => fineLayers(row.part)),
+    fine: [...new Set(rows.filter((row) => fineLayers(row.part)).map((row) => row.name))],
+    graded: rows.some((row) => row.strength != null),
   };
 }
 
@@ -1273,7 +1478,11 @@ function goToCategory(category) {
 let looseAt = 0;
 function drawSummary() {
   const box = $("summary");
-  const { rows, weight, fine } = totals();
+  const { rows, weight, fine, graded } = totals();
+  const fits = [...new Set([-4, -3, -2, -1, 0, 1, 2, 3, 4, scene.fit])].sort((a, b) => a - b);
+  const fitSelect = graded || scene.fit ? `<label class="scale-row" title="Every joint in this build, counted from the strength the author recommends for each part. A part can be given its own: select it.">Joint strength
+      <select id="joint-fit">${fits.map((v) => `<option value="${v}"${scene.fit === v ? " selected" : ""}>${v === 0 ? "As recommended" : `${Math.abs(v)} ${v > 0 ? "tighter" : "looser"}`}</option>`).join("")}</select></label>
+    <p class="small fit-note">Joints too loose off your printer? Go tighter. Too stiff to push in? Go looser. It depends on the printer and the filament. <button class="link" data-do="sampler">Print a test first</button></p>` : "";
   const scaleSelect = `<label class="scale-row" title="Every part, joints included, is printed this much bigger. Parts of different scales do not fit each other.">Kit scale
       <select id="scale">${[[1, "1 × (20 mm blocks)"], [1.5, "1.5 × (30 mm blocks)"], [2, "2 × (40 mm blocks)"]].map(([v, text]) => `<option value="${v}"${scene.scale === v ? " selected" : ""}>${text}</option>`).join("")}</select></label>`;
   if (!rows.length) {
@@ -1297,10 +1506,11 @@ function drawSummary() {
       <button class="link" data-do="show-afloat">Show</button> &middot; <button class="link" data-do="settle">Set ${afloatParts === 1 ? "it" : "them"} down</button></p>` : ""}
     ${loose.length ? `<p class="callout">${loose.length === 1 ? "One part is" : `${loose.length} parts are`} only partly joined. <button class="link" data-do="show-loose">Show ${loose.length === 1 ? "it" : "the next"}</button></p>` : ""}
     ${scaleSelect}
+    ${fitSelect}
     <h4>To print${scene.scale !== 1 ? `, each ${scene.scale} times the size its name says` : ""}</h4>
-    <table id="bom">${rows.map((row) => `<tr data-name="${escapeHtml(row.name)}" tabindex="0" title="Click to find ${row.quantity === 1 ? "it" : "them"} in the build">
+    <table id="bom">${rows.map((row, k) => `<tr data-row="${k}" tabindex="0" title="Click to find ${row.quantity === 1 ? "it" : "them"} in the build">
       <td class="n">${row.quantity} &times;</td><td class="pic"><img src="${thumbOf(row.part)}" alt="" loading="lazy"></td>
-      <td>${escapeHtml(row.label)}${fineLayers(row.part) ? ` <span class="fine" title="The author recommends ${escapeHtml(row.part.print.layer)} mm layers for this part">fine layers</span>` : ""}</td></tr>`).join("")}</table>
+      <td>${escapeHtml(row.label)}${row.strength != null ? ` <span class="grade${row.strength !== row.part.fit.recommended ? " off" : ""}" title="Joint strength ${row.strength}; the author recommends ${row.part.fit.recommended} for this part">strength ${row.strength}</span>` : ""}${fineLayers(row.part) ? ` <span class="fine" title="The author recommends ${escapeHtml(row.part.print.layer)} mm layers for this part">fine layers</span>` : ""}</td></tr>`).join("")}</table>
     ${fine.length ? `<p class="small" style="margin-top:8px">Parts marked fine layers print best at 0.1 or 0.12 mm; the rest at 0.2 mm.</p>` : ""}
     <div class="row" style="margin-top:10px"><button data-do="print" class="primary">Download for printing</button></div>
     <p class="small">Your build is kept in this browser as you go. <b>Build &rsaquo; Save to a file</b> makes a copy you can keep or send.</p>`;
@@ -1308,6 +1518,13 @@ function drawSummary() {
 }
 
 $("summary").addEventListener("change", (event) => {
+  if (event.target.id === "joint-fit") {
+    checkpoint();
+    scene.fit = Number(event.target.value);
+    refresh();
+    const own = scene.items.filter((it) => it.fit != null).length;
+    return hint(`Every joint is now ${fitWords(scene.fit)}${own ? `, except ${plural(own, "part")} with a strength of ${own === 1 ? "its" : "their"} own` : ""}`, false, 4500);
+  }
   if (event.target.id !== "scale") return;
   checkpoint();
   scene.scale = Number(event.target.value);
@@ -1331,6 +1548,7 @@ $("summary").addEventListener("click", (event) => {
   }
   const action = event.target.closest("button")?.dataset.do;
   if (action === "print") return openExport();
+  if (action === "sampler") return openSampler();
   if (action === "show-afloat" || action === "settle") {
     const afloat = scene.floating();
     if (!afloat.length) return;
@@ -1356,15 +1574,21 @@ $("summary").addEventListener("click", (event) => {
   }
   const row = event.target.closest("#bom tr");
   if (!row) return;
-  const ids = scene.items.filter((it) => it.name === row.dataset.name).map((it) => it.id);
+  const ids = totals().rows[row.dataset.row]?.ids ?? [];
+  if (!ids.length) return;
+  if (event.shiftKey || event.ctrlKey || event.metaKey) {       // every part of this row at once, to set their strength together
+    choose(ids);
+    refresh();
+    return hint(`${plural(ids.length, "part")} selected`, false, 2000);
+  }
+  group = new Set();
   selected = ids[(ids.indexOf(selected) + 1) % ids.length];
   refresh();
   if (!inView(scene.get(selected).pose.t)) fitView(null, true, [selected]);
 });
 
 function markRow(row) {
-  const name = row?.dataset.name ?? null;
-  const next = new Set(name ? scene.items.filter((it) => it.name === name).map((it) => it.id) : []);
+  const next = new Set(row ? totals().rows[row.dataset.row]?.ids ?? [] : []);
   if (next.size === marked.size && [...next].every((id) => marked.has(id))) return;
   marked = next;
   syncViews();
@@ -1754,7 +1978,7 @@ function openBuild(data, said = "") {
     return false;
   }
   if (JSON.parse(before).items.length) { undoStack.push(before); redoStack.length = 0; }
-  selected = null;
+  selected = null; group = new Set();
   notes = [];
   refresh();
   fitView("corner", false);
@@ -1823,8 +2047,8 @@ async function openFromAddress() {
 
 function savePicture() {
   if (!scene.items.length) return hint("There is nothing to picture yet", true, 2000);
-  const was = [selected, hovered, marked];
-  selected = null; hovered = null; marked = new Set();
+  const was = [selected, hovered, marked, group];
+  selected = null; hovered = null; marked = new Set(); group = new Set();
   syncViews();
   const ratio = Math.max(2, Math.ceil(1920 / canvas.clientWidth));
   renderer.setPixelRatio(ratio);
@@ -1833,7 +2057,7 @@ function savePicture() {
   draw();
   canvas.toBlob((blob) => {
     grid.visible = true;
-    [selected, hovered, marked] = was;
+    [selected, hovered, marked, group] = was;
     resize();
     syncViews();
     if (!blob) return hint("The picture could not be made", true, 3000);
@@ -1847,7 +2071,7 @@ function partsListText() {
   const { rows, weight, fine } = totals();
   const lines = rows.map((row) => {
     const size = sizeOf(row.part, scene.scale).join(" x ");
-    return `  ${String(row.quantity).padStart(3)} x  ${row.label}   (${size} mm, ${row.part.print.layer ?? "0.2"} mm layers)`;
+    return `  ${String(row.quantity).padStart(3)} x  ${row.label}${row.strength != null ? `, strength ${row.strength}` : ""}   (${size} mm, ${row.part.print.layer ?? "0.2"} mm layers)`;
   });
   return [
     scene.title || "MADOS kit build",
@@ -1859,18 +2083,44 @@ function partsListText() {
 
 // The files to print: one STL for each kind of part, a parts list, the build itself and,
 // if wanted, a model of the assembled build.  -> [{name, data}]
-async function printFiles({ preview = true } = {}) {
-  const { rows, weight, fine } = totals();
+async function printFiles({ preview = true, bed = null } = {}) {
+  const { rows, weight, fine, graded } = totals();
   const files = [];
   const lines = [];
+  const kinds = [];
   for (const row of rows) {
     const part = row.part;
-    const shape = await printShape(part);
-    const data = stl.writeBinarySTL(scene.scale === 1 ? shape : stl.transformed(shape, null, scene.scale), part.label);
-    const name = `${fineLayers(part) ? "print-fine-layers" : "print"}/${row.quantity}x_${row.name}.stl`;
+    const shape = await printShape(part, row.strength);
+    const flat = scene.scale === 1 ? shape : stl.transformed(shape, null, scene.scale);
+    const data = stl.writeBinarySTL(flat, `${part.label}${row.strength != null ? `, strength ${row.strength}` : ""}`);
+    const name = `${fineLayers(part) ? "print-fine-layers" : "print"}/${row.quantity}x_${printName(part, row.strength)}.stl`;
     files.push({ name, data });
+    kinds.push({ key: name, label: printName(part, row.strength), flat, quantity: row.quantity, fine: Boolean(fineLayers(part)) });
     const size = sizeOf(part, scene.scale).map((v) => v.toFixed(1)).join(" x ");
-    lines.push(`  ${String(row.quantity).padStart(3)} x  ${row.label}\n         ${name}\n         ${size} mm as printed, ${part.print.layer ?? "0.2"} mm layers${part.page ? `\n         ${part.page}` : ""}`);
+    const grade = row.strength == null ? "" : `\n         joint strength ${row.strength}${row.strength === part.fit.recommended ? ", the one the author recommends" : ` (the author recommends ${part.fit.recommended})`}`;
+    lines.push(`  ${String(row.quantity).padStart(3)} x  ${row.label}\n         ${name}${grade}\n         ${size} mm as printed, ${part.print.layer ?? "0.2"} mm layers${part.page ? `\n         ${part.page}` : ""}`);
+  }
+  const off = rows.filter((row) => row.strength != null && row.strength !== row.part.fit.recommended);
+  const own = scene.items.filter((it) => it.fit != null && scene.partOf(it).fit).length;
+  // print plates: the parts for 0.2 mm layers and those for fine layers on plates of their own
+  const plates = [], tooBig = [];
+  if (bed) {
+    const shapes = new Map();
+    for (const kind of kinds) {
+      const lo = [Infinity, Infinity], hi = [-Infinity, -Infinity];
+      for (let i = 0; i < kind.flat.length; i += 3) for (let k = 0; k < 2; k++) { lo[k] = Math.min(lo[k], kind.flat[i + k]); hi[k] = Math.max(hi[k], kind.flat[i + k]); }
+      kind.width = hi[0] - lo[0]; kind.depth = hi[1] - lo[1];
+      shapes.set(kind.key, { name: kind.label, flat: kind.flat });
+    }
+    for (const fine of [false, true]) {
+      const laid = plate.arrange(kinds.filter((kind) => kind.fine === fine), bed);
+      tooBig.push(...laid.left.map((key) => kinds.find((kind) => kind.key === key).label));
+      for (const [k, placed] of laid.plates.entries()) {
+        const name = `plates/${fine ? "fine-layers" : "0.2mm-layers"}_plate-${k + 1}${laid.plates.length > 1 ? `-of-${laid.plates.length}` : ""}.3mf`;
+        plates.push({ name, copies: placed.length, fine });
+        files.push({ name, data: await plate.plateFile(`${scene.title || "MADOS kit build"}: ${fine ? "fine layers" : "0.2 mm layers"}, plate ${k + 1}`, shapes, placed) });
+      }
+    }
   }
   const size = scene.extent().map((v) => v.toFixed(1)).join(" x ");
   const pieces = scene.pieces().length;
@@ -1892,7 +2142,14 @@ async function printFiles({ preview = true } = {}) {
     scene.title || "MADOS kit build", `made ${stamp()} with the MADOS kit builder`, "",
     `${plural(scene.items.length, "part")}${pieces > 1 ? ` in ${pieces} separate pieces` : ""}, about ${size} mm overall, about ${gramsText(weight)} of PLA.`,
     scene.scale !== 1 ? `Kit scale ${scene.scale} x: every part, joints included, is ${scene.scale} times the size its name says. These parts fit each other but not standard-size MADOS parts.` : "Standard MADOS size: these parts fit the author's own parts.",
-    "", "Print each file the number of times its name starts with:", "", ...lines, "",
+    "", ...(plates.length ? [
+      `Ready to slice: the 3MF files in plates/ have every part laid out on a ${bed[0]} x ${bed[1]} mm bed, each as many times`,
+      "as the build needs. Open one in your slicer, choose your printer and filament, and slice.", "",
+      ...plates.map((p) => `    ${p.name}   ${plural(p.copies, "part")}, ${p.fine ? "0.1 or 0.12" : "0.2"} mm layers`),
+      ...(tooBig.length ? ["", `    Too big for that bed, so not on a plate: ${tooBig.join(", ")}. Their files are in print/.`] : []),
+      "", "Or lay them out yourself: print each file below the number of times its name starts with.", ""]
+      : ["Print each file the number of times its name starts with:", ""]),
+    ...lines, "",
     "Printing",
     "  - The author's advice for every part, in his words: \"use Classic perimeter generator and one",
     "    wall/perimeter on top and bottom layers\". In OrcaSlicer these are the Classic wall generator and the",
@@ -1901,8 +2158,15 @@ async function printFiles({ preview = true } = {}) {
       ? "  - The files in print-fine-layers/ print best at 0.1 or 0.12 mm layers. Slice them as their own plate.\n    The files in print/ are meant for 0.2 mm layers."
       : "  - Every part here is meant for 0.2 mm layers.",
     "  - No supports are needed. Print each part in the position its file has it in.",
-    "  - If a joint comes out too tight or too loose on your printer: the author publishes his parts that have",
-    "    plugs in ten tightnesses, 0 to 9 (see the part's page, linked above). The files here are the ones he recommends.",
+    ...(graded ? [
+      "  - Joint strength: the author publishes every part that grips in ten strengths, 0 (loosest) to 9, and",
+      "    recommends one for each part. " + (off.length
+        ? `This build is set ${fitWords(scene.fit)}${own ? `, and ${plural(own, "part")} ${own === 1 ? "has" : "have"} a strength of ${own === 1 ? "its" : "their"} own` : ""}; each file's strength is listed above.`
+        : "The files here are at the strengths he recommends."),
+      "    If a joint comes out too tight or too loose on your printer, change \"Joint strength\" in the builder and",
+      "    download again. A file name ends in its strength, the way the author names his: MADOS-20AA-1.",
+      ...(off.length ? ["    The number engraved on an official part is the strength the author recommends, not the one chosen here:",
+        "    go by the file name."] : [])] : []),
     ...(used((p) => !p.page) ? ["  - Parts called \"generated\" are sizes the official range does not have, made by the builder from the",
       "    official plug and socket shapes. A generated block and twist block have been test-printed against",
       "    official parts; the others have not, so print one joint first if the fit matters."] : []),
@@ -1926,20 +2190,75 @@ async function printFiles({ preview = true } = {}) {
   return files;
 }
 
+// A small set to print before a big build: the same joint at several strengths, to find
+// which one suits this printer and filament.  One socket block to push them into, and for
+// each kind of plug the part the author makes with the fewest of them, at the strength he
+// recommends and the steps either side of it.
+const SAMPLER = [["MADOS-20AA", [-1, 0, 1, 2]], ["MADOS-20JB", [-1, 0, 1]], ["MADOS-20CD", [-1, 0, 1]], ["MADOS-20DH", [-1, 0, 1]]];
+function samplerBuild() {
+  const test = new Scene(catalog);
+  const stand = (name, x, y, fit = null) => {
+    const payload = [{ name, angles: test.parts.get(name).joints.map(() => 0), rel: kit.IDENTITY }];
+    const id = test.place(payload, test.groundPose(payload, kit.IDENTITY.r, x, y))[0];
+    if (fit != null) test.setFit([id], fit);
+  };
+  stand("MADOS-20BA", -40, 0);
+  stand("MADOS-20BB", -40, 40);
+  SAMPLER.forEach(([name, fits], row) => {
+    if (test.parts.has(name)) fits.forEach((fit, k) => stand(name, k * 40, row * 40, fit));
+  });
+  test.title = "Joint strength test";
+  return test.toJSON();
+}
+
+function openSampler() {
+  const had = scene.items.length;
+  if (!openBuild(samplerBuild(), had ? "The joint strength test is open. Undo brings your build back." : "The joint strength test is open")) return;
+  notes = [
+    { text: "Each row is one kind of joint, loosest at the left, one step tighter each time. Print the set and push each into a block.", item: 2 },
+    { text: "Keep the strength that goes in with a firm push and holds. Say it is the third in its row, one step tighter than recommended: then set Joint strength to \"1 tighter\" in your own build.", item: 4 },
+    { text: "The parts come out of the printer looking alike, so lay them out in the order of their file names: each name ends in its strength.", item: 3 },
+  ];
+  refresh();
+}
+
+// The bed the plates are laid out for: the one picked in the dialog, remembered in this browser.
+function chosenBed() {
+  const pick = $("export-bed").value;
+  const bed = pick === "other" ? [Number($("export-bed-width").value), Number($("export-bed-depth").value)] : pick.split("x").map(Number);
+  return bed.every((v) => Number.isFinite(v) && v >= 60 && v <= 1000) ? bed : [220, 220];
+}
+function showBed() {
+  $("export-bed-row").hidden = !$("export-plates").checked;
+  $("export-bed-other").hidden = $("export-bed").value !== "other";
+  store.set(`${STORE}-bed`, JSON.stringify({ on: $("export-plates").checked, pick: $("export-bed").value, size: [$("export-bed-width").value, $("export-bed-depth").value] }));
+}
+for (const id of ["export-plates", "export-bed", "export-bed-width", "export-bed-depth"]) $(id).addEventListener("change", showBed);
+try {
+  const kept = JSON.parse(store.get(`${STORE}-bed`) ?? "null");
+  if (kept) {
+    $("export-plates").checked = kept.on !== false;
+    if ([...$("export-bed").options].some((o) => o.value === kept.pick)) $("export-bed").value = kept.pick;
+    [$("export-bed-width").value, $("export-bed-depth").value] = kept.size ?? [220, 220];
+  }
+} catch { /* a bed kept by an older version: start from the usual one */ }
+
 function openExport() {
   if (!scene.items.length) return hint("Add some parts first: there is nothing to print yet", true, 2500);
-  const { rows, weight, fine } = totals();
+  const { rows, weight, fine, graded } = totals();
   const loose = new Set(scene.partlyJoined().map((g) => g.item)).size;
   const pieces = scene.pieces().length;
   $("export-body").innerHTML = `
     <p>${plural(scene.items.length, "part")} of ${plural(rows.length, "kind")}, about <b>${gramsText(weight)} of PLA</b>${scene.scale !== 1 ? `, at ${scene.scale}&times; scale` : ""}. Print each file as many times as shown.</p>
     <div class="scrolls"><table>${rows.map((row) => `<tr>
-      <td class="n">${row.quantity} &times;</td><td>${escapeHtml(row.label)}${fineLayers(row.part) ? ` <span class="small">(fine layers)</span>` : ""}</td>
+      <td class="n">${row.quantity} &times;</td><td>${escapeHtml(row.label)}${row.strength != null ? ` <span class="small">strength ${row.strength}</span>` : ""}${fineLayers(row.part) ? ` <span class="small">(fine layers)</span>` : ""}</td>
       <td class="dim">${sizeOf(row.part, scene.scale).join(" &times; ")} mm</td></tr>`).join("")}</table></div>
     ${fine.length ? `<p class="small">${plural(fine.length, "kind")} of part ${fine.length === 1 ? "prints" : "print"} best at 0.1 or 0.12 mm layers. Those files come in their own folder, so they are easy to slice as a separate plate; everything else is meant for 0.2 mm.</p>` : `<p class="small">Every part here is meant for 0.2 mm layers.</p>`}
+    ${graded ? `<p class="small">Joint strength: ${scene.fit ? `this build is set <b>${fitWords(scene.fit)}</b>` : "each part is at the strength the author recommends for it"}. Change it under <b>This build</b> if your printer's joints come out loose or stiff.</p>` : ""}
     <p class="small">The author's advice for every part: Classic perimeter generator, one wall on top and bottom layers, no supports.</p>
     ${pieces > 1 ? `<p class="callout">This build is in ${pieces} separate pieces that nothing joins together. That is fine if you meant it.</p>` : ""}
     ${loose ? `<p class="callout">${loose === 1 ? "One part is" : `${loose} parts are`} only partly joined and will hold weakly.</p>` : ""}`;
+  showBed();
   $("exportbox").showModal();
 }
 
@@ -1948,11 +2267,12 @@ async function exportBuild() {
   button.disabled = true;
   button.textContent = "Preparing the files…";
   try {
-    const files = await printFiles({ preview: $("export-preview").checked });
+    const files = await printFiles({ preview: $("export-preview").checked, bed: $("export-plates").checked ? chosenBed() : null });
+    const laidOut = files.filter((f) => f.name.startsWith("plates/")).length;
     const prints = files.filter((f) => f.name.endsWith(".stl") && f.name.startsWith("print")).length;
     download(`${fileStem()}.zip`, await makeZip(files), "application/zip");
     $("exportbox").close();
-    hint(`Downloaded ${plural(prints, "print file")} with a parts list`, false, 3500);
+    hint(`Downloaded ${plural(prints, "print file")} with a parts list${laidOut ? `, and ${plural(laidOut, "plate")} ready to slice` : ""}`, false, 4000);
   } catch (error) {
     console.error(error);
     hint(`The download failed: ${error.message}`, true, 6000);
@@ -1987,7 +2307,7 @@ $("redo").addEventListener("click", () => restore(redoStack, undoStack));
 $("new").addEventListener("click", () => {
   if (!scene.items.length && !scene.title) return hint("The scene is already empty", false, 2000);
   checkpoint();
-  scene.items = []; scene.title = ""; selected = null;
+  scene.items = []; scene.title = ""; scene.fit = 0; selected = null; group = new Set();
   refresh();
   fitView("corner");
   hint("Cleared. Undo brings it back.", false, 3000);
@@ -2015,6 +2335,11 @@ $("export-go").addEventListener("click", exportBuild);
 $("export-cancel").addEventListener("click", () => $("exportbox").close());
 $("export-list").addEventListener("click", () => copyText(partsListText(), "Parts list copied"));
 $("fit").addEventListener("click", () => fitView());
+$("box-select").addEventListener("click", () => {
+  if (!scene.items.length) return hint("Add some parts first: there is nothing to select yet", true, 2500);
+  setBoxMode(!boxMode);
+  if (boxMode) hint("Drag a box round the parts to select. Their joint strength can then be set together.", false, 4000);
+});
 $("zoom-in").addEventListener("click", () => zoom(0.75));
 $("zoom-out").addEventListener("click", () => zoom(1 / 0.75));
 for (const button of document.querySelectorAll("#viewtools [data-view]")) button.addEventListener("click", () => fitView(button.dataset.view));
@@ -2190,6 +2515,9 @@ async function start() {
     scene, kit, catalog, refresh, printFiles, share, ensureMeshes,
     fitView: (view = null) => fitView(view, false),
     get selected() { return selected; },
+    get chosen() { return chosenIds(); },
+    choose(ids) { choose(ids); refresh(); },
+    stepStrength, printShape,
     get dragging() { return drag ? { target: drag.target && { pose: drag.target.pose, engaged: drag.target.engaged }, remove: drag.remove } : null; },
     get moving() { return Boolean(fly || animation); },
     select(id) { selected = id; refresh(); },

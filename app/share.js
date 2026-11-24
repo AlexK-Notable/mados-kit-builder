@@ -9,19 +9,21 @@ function pack(build) {
   const names = [...new Set(build.items.map((it) => it.name))];
   return {
     s: build.scale ?? 1,
+    ...(build.fit ? { f: build.fit } : {}),
     ...(build.title ? { t: build.title } : {}),
     n: names,
-    i: build.items.map((it) => [names.indexOf(it.name), it.pose.r.flat().map(round), it.pose.t.map(round), it.angles.map(round)]),
+    // a part with a joint strength of its own carries it as a fifth entry
+    i: build.items.map((it) => [names.indexOf(it.name), it.pose.r.flat().map(round), it.pose.t.map(round), it.angles.map(round), ...(it.fit != null ? [it.fit] : [])]),
   };
 }
 
 function unpack(data) {
   if (!data || !Array.isArray(data.n) || !Array.isArray(data.i)) throw new Error("the link does not hold a build");
   return {
-    format: "mados-kit build", version: 1, scale: data.s ?? 1, ...(data.t ? { title: data.t } : {}),
-    items: data.i.map(([n, r, t, angles]) => {
+    format: "mados-kit build", version: 1, scale: data.s ?? 1, ...(data.f ? { fit: data.f } : {}), ...(data.t ? { title: data.t } : {}),
+    items: data.i.map(([n, r, t, angles, fit]) => {
       if (!(n in data.n) || r.length !== 9 || t.length !== 3) throw new Error("the link is damaged");
-      return { name: data.n[n], pose: { r: [r.slice(0, 3), r.slice(3, 6), r.slice(6, 9)], t }, angles: angles ?? [] };
+      return { name: data.n[n], pose: { r: [r.slice(0, 3), r.slice(3, 6), r.slice(6, 9)], t }, angles: angles ?? [], ...(fit != null ? { fit } : {}) };
     }),
   };
 }

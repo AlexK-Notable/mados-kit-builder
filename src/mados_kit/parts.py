@@ -93,7 +93,18 @@ def hinge(length, strength=3):
     joint = {"name": "pivot", "parent": 0, "child": 1, "point": [0.0, 0.0, 0.0], "axis": [1.0, 0.0, 0.0],
              "min": HINGE_RANGE[0], "max": HINGE_RANGE[1], "stops": [-90.0, 0.0, 90.0]}
     return {"name": f"hinge_{length:g}_s{strength}", "kind": "hinge", "bodies": bodies, "joints": [joint],
-            "meta": {"length": length, "strength": strength}}
+            "meta": {"length": length, "strength": strength, "print_frames": _leaf_frames()}}
+
+
+def _leaf_frames():
+    """For each leaf of a hinge, the transform from the leaf as the kit holds it (squared up)
+    back to where it lies in the file it is printed from."""
+    frames = []
+    for tilt in (-HINGE_TILT, HINGE_TILT):
+        t = np.eye(4)
+        t[:3, :3] = _rotation([1, 0, 0], tilt)
+        frames.append(t)
+    return frames
 
 
 def stock_hinge(part_number):
@@ -111,7 +122,7 @@ def stock_hinge(part_number):
     joint = {"name": "pivot", "parent": 0, "child": 1, "point": [0.0, 0.0, 0.0], "axis": [1.0, 0.0, 0.0],
              "min": HINGE_RANGE[0], "max": HINGE_RANGE[1], "stops": [-90.0, 0.0, 90.0]}
     return {"name": part_number, "kind": "hinge", "bodies": bodies, "joints": [joint],
-            "meta": {"strength": strength, "print": M.mesh_union(list(leaves))}}
+            "meta": {"strength": strength, "print": M.mesh_union(list(leaves)), "print_frames": _leaf_frames()}}
 
 
 def stock_wrap(part_number, panels, panel_width=M.TILE):
