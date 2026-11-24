@@ -54,8 +54,15 @@ def referenced(catalog):
                 files[body["mesh"]] = "view"
         if "mesh" in part["print"]:
             files[part["print"]["mesh"]] = "print"
+        for rel in part["print"].get("strengths", {}).values():       # a joiner's other strengths
+            files[rel] = "print"
+        for kept in part["print"].get("patches", {}).values():        # what else differs at another strength: the digit engraved on it
+            files[kept["mesh"]] = "print"
         if part.get("thumb"):
             files[part["thumb"]] = "picture"
+    for rels in catalog.get("plugs", {}).values():                    # the author's plug shapes, ten strengths a kind
+        for rel in rels:
+            files[rel] = "print"
     for tile in catalog.get("tiles", []):
         files[tile["mesh"]] = "view"
         files[tile["print"]] = "print"

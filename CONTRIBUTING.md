@@ -47,6 +47,8 @@ files, which are downloaded and not kept here:
    | the mesh format | both readers together (`src/mados_kit/meshfile.py`, `app/mesh.js`), then `tools/refresh_data.py` |
    | the joint rule, a generator or a part's joints | also `tools/check_kit.py`, and rebuild the parts involved with `tools/build_app_data.py NAME...` |
    | blocks, twist blocks or covers | also `tools/build_tiles.py` |
+   | how a part is made at another joint strength, or a part that has plugs | also `tools/build_patches.py`, then `tools/check_strength.py` |
+   | the print plates | `node --test tests/app/plate.test.mjs`, and open a plate in a slicer |
 
 3. Open a pull request. Say what changed for someone using the builder, and how you
    checked it. For a joint rule, say what the evidence is: a measurement, the author's

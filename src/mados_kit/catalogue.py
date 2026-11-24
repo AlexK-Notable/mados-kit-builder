@@ -16,6 +16,7 @@ import numpy as np
 from . import joints as K
 from . import parts as P
 from . import generators as M
+from . import strength as S
 
 VOXEL = 5.0
 OCCUPIED_MIN = 0.08     # share of a cube that must be material; a 1 mm cover plate fills 0.2
@@ -80,7 +81,7 @@ def describe(part, label, category, note=""):
             "meta": part["meta"], "bodies": bodies, "joints": part["joints"]}
 
 
-def write_mesh(man, out_dir, rel):
+def write_mesh(man, out_dir, rel, drift_floor=0.0):
     """Store a mesh under out_dir in the app's compact form (meshfile.py), named by its
     content (store.py): `rel` is the name it would have without that, such as
     "print/MADOS-20BA.mkm".  What is stored is read back and must still be a closed solid.
@@ -92,7 +93,8 @@ def write_mesh(man, out_dir, rel):
     data, triangles, is_closed = meshfile.packed(tm.vertices, tm.faces)
     assert is_closed, f"{rel} is not a closed solid once its points are rounded"
     back = trimesh.Trimesh(*meshfile.decode(data), process=False)
-    assert abs(back.volume - tm.volume) <= meshfile.ROUNDING_DRIFT_MAX * abs(tm.volume), rel
+    # drift_floor (mm3): for a mesh of a few mm3, where a share of its volume is less than rounding moves any surface
+    assert abs(back.volume - tm.volume) <= max(meshfile.ROUNDING_DRIFT_MAX * abs(tm.volume), drift_floor), (rel, back.volume - tm.volume)
     return store.put(out_dir, rel, data), int(triangles)
 
 
@@ -152,15 +154,59 @@ def tidy(man):
     return man, removed
 
 
-def export_part(part, label, category, note, out_dir, print_mesh=None, folder=""):
+# The strength the author recommends for the kinds of part the generators make, which he
+# does not publish as such [his file names: every wrap cover (20CK, 20CL, 20CQ, 20CR) and
+# every hinge (20HA to 20HO) has "-2_Recommended"].  Blocks, twist blocks and covers of any
+# size are families: tools/build_tiles.py says what is recommended for those.
+GENERATED_RECOMMENDED = {"wrap_cover": 2, "hinge": 2}
+HIS_FILE_BOX_MAX = 0.05      # mm his recommended STL's outline may differ from his STEP file's, apart from the plugs' height
+                             #  [measured 2026-11-23 over the 46 parts with strengths: 0.0001 at most]
+
+
+def his_print(number, part):
+    """The author's recommended STL of an official part, as the mesh to print: his own
+    file, at the strength he recommends, with that strength's number engraved on it.  (His
+    STEP files are drawn one or two strengths tighter: MADOS-20AA-3_CAD.step beside
+    MADOS-20AA-1_Recommended.stl.)  None where there is no such file on disk or it does not
+    lie where the STEP file does."""
+    import glob
+    if S.recommended(number) is None or not glob.glob(os.path.join(M.UP, number, "*Recommended.stl")):
+        return None
+    try:
+        bodies, _ = M.recommended_stl(number)
+    except AssertionError:
+        return None
+    his = M.mesh_union(list(bodies))
+    drawn = part["meta"].get("print")
+    if drawn is None and len(part["bodies"]) == 1:
+        drawn = part["bodies"][0]["mesh"]
+    if drawn is not None:
+        a, b = his.bounding_box(), drawn.bounding_box()
+        assert max(abs(x - y) for x, y in zip(a, b)) < HIS_FILE_BOX_MAX, f"{number}: his STL lies at {a}, his STEP file at {b}"
+    return his
+
+
+def export_part(part, label, category, note, out_dir, print_mesh=None, folder="", drawn_as=None):
     """Write a part's display meshes and print mesh under out_dir and return its catalogue
-    entry.  `folder` is a sub-folder of out_dir (with a trailing slash) for custom parts."""
+    entry.  `folder` is a sub-folder of out_dir (with a trailing slash) for custom parts.
+    drawn_as: the part's earlier entry, to keep the display meshes it has (they are named by
+    their content and making them again gives other bytes for the same shape)."""
+    import re
+    number = part["name"] if re.fullmatch(r"MADOS-20[A-Z]{2}", part["name"]) else None
+    his = his_print(number, part) if number else None
     stock_print = part["meta"].pop("print", None)       # the author's own file, where the part carries it
-    if print_mesh is None:
+    frames = part["meta"].pop("print_frames", None)     # where each body lies in the file it is printed from
+    if his is not None:
+        print_mesh = his
+    elif print_mesh is None:
         print_mesh = stock_print
     has_joints = any(b["ports"] for b in part["bodies"])
     entry = describe(part, label, category, f"{note} It has {joints_in_words(part)}." if category != "Custom" and has_joints else note)
-    for body, described in zip(part["bodies"], entry["bodies"]):
+    kept = [b for b in (drawn_as or {}).get("bodies", []) if b.get("mesh") and os.path.exists(os.path.join(out_dir, b["mesh"]))]
+    for k, (body, described) in enumerate(zip(part["bodies"], entry["bodies"])):
+        if len(kept) == len(part["bodies"]):
+            described["mesh"], described["triangles"] = kept[k]["mesh"], kept[k]["triangles"]
+            continue
         drawn = light(body["mesh"])
         assert abs(drawn.volume() - body["mesh"].volume()) < 0.01 * body["mesh"].volume(), part["name"]
         described["mesh"], described["triangles"] = write_mesh(drawn, out_dir, f"{folder}meshes/{part['name']}__{body['name']}.mkm")
@@ -169,8 +215,39 @@ def export_part(part, label, category, note, out_dir, print_mesh=None, folder=""
     entry["print"] = {"mesh": rel, "triangles": triangles,
                       "volume_mm3": round(float(whole.volume()), 1), "bubbles_filled": filled,
                       "bbox": [round(float(v), 3) for v in whole.bounding_box()]}
+    add_strengths(entry, part, whole, frames, number, out_dir, folder)
     annotate(entry)
     return entry
+
+
+def add_strengths(entry, part, whole, frames, number, out_dir, folder=""):
+    """Say in a part's entry what the app needs to print it at another strength (strength.py):
+    where its plugs stand on the print mesh, or for a joiner the author's file of each
+    other strength; and `fit`: the strength the stored mesh is made at and the one recommended."""
+    places = S.placements(whole, part["bodies"], frames)
+    if places:
+        made = S.made_at(places)
+        entry["print"]["plugs"] = S.as_data(places)
+        recommended = S.recommended(number) if number else GENERATED_RECOMMENDED.get(part["kind"], made)
+        entry["fit"] = {"made": made, "recommended": made if recommended is None else recommended}
+        top = max(p["strength"] for b in entry["bodies"] for p in b["ports"] if p["kind"] != K.SOCKET and not p.get("system"))
+        for body in entry["bodies"]:                     # the ports were read from his STEP file; the part is printed from this mesh
+            for p in body["ports"]:
+                if p["kind"] != K.SOCKET and not p.get("system") and p["strength"] == top:
+                    p["strength"] = made
+    elif number and part["kind"] == "joiner" and S.recommended(number) is not None:
+        made = S.recommended(number)
+        others = {}
+        for strength in S.published(number):
+            his = S.stl_at(number, strength) if strength != made else None
+            if his is None:
+                continue
+            a, b = his.bounding_box(), whole.bounding_box()
+            assert max(abs(x - y) for x, y in zip(a, b)) < 1.5, f"{number}-{strength} lies at {a}, the recommended file at {b}"
+            others[str(strength)] = write_mesh(tidy(his)[0], out_dir, f"{folder}print/{number}-{strength}.mkm")[0]
+        entry["fit"] = {"made": made, "recommended": made}
+        if others:
+            entry["print"]["strengths"] = others
 
 
 FINE_LAYER = "0.1 or 0.12"   # mm [the author's Printables pages: the threaded and press-in joiners and every hinge]
@@ -199,7 +276,6 @@ def annotate(entry):
 
 
 GENERATED = "Made by this builder from the official joint shapes, in a size the official range does not have."
-TIGHTNESS = "Plug tightness {} on the author's scale of 0 (loosest) to 9."
 
 
 def in_words(entry):
@@ -233,8 +309,7 @@ def in_words(entry):
     base = re.sub(r" \(20[A-Z]{2}\)$", "", label)
     base = re.sub(r", (plugs both ends|no plugs|one plug)$", "", base)      # what this function itself adds
     code = f" ({name[6:]})" if official else ""
-    strength = re.search(r"_s(\d)", name)
-    tight = f" {TIGHTNESS.format(strength.group(1))}" if strength else ""
+    tight = ""          # a part's joint strength is chosen in the builder, so its description no longer names one
 
     if family == "B":
         what = ("A hollow block with sockets on every face and no plugs. To hold onto another block it needs a part with "
@@ -445,18 +520,18 @@ def catalogue():
         "Four 40 mm blocks fused side by side.")
     for length in (40, 60, 80, 100):
         add(f"Twist block {length} mm (generated)", "Twist blocks", lambda length=length: P.twist_block(length, 3),
-            "Four twist plugs on one end, strength 3. The main structural joint.")
+            "Four twist plugs on one end. The main structural joint.")
     add("Double twist block 40 mm (generated)", "Twist blocks", lambda: P.twist_block(40, 3, "ccw"),
         "Twist plugs on both ends; the far end is the mirrored joint.")
     for w, l in ((20, 20), (20, 40), (20, 60), (40, 40)):
         add(f"Cover {w} x {l} mm (generated)", "Covers", lambda w=w, l=l: P.cover(w, l, 4),
-            "Flat plate that snaps onto a face. Strength 4.")
+            "Flat plate that snaps onto a face.")
     for panels, l in ((3, 40), (4, 40), (3, 60)):
         add(f"Wrap cover, {panels} sides x {l} mm (generated)", "Covers",
             lambda panels=panels, l=l: P.wrap_cover(panels, l, 4), "Prints flat and folds round a block.",
             lambda panels=panels, l=l: _print_wrap(panels, l, 4))
     for length in (20, 40, 60):
         add(f"Hinge {length} mm (generated)", "Hinges", lambda length=length: P.hinge(length, 3),
-            "Print-in-place hinge, swings 90 degrees each way. Snap plugs, strength 3.",
+            "Print-in-place hinge, swings 90 degrees each way. Snap plugs.",
             lambda length=length: _print_hinge(length, 3))
     return [item for category in CATEGORY_ORDER for item in by_category[category]]

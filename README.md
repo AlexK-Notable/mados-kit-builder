@@ -46,16 +46,43 @@ builder says why. Let go and it snaps in.
   shows through the blocks around it.
 - Shadows on the floor show how high a part is. If taking a part out leaves others in
   the air, the builder says so and sets them down in one press.
+- To act on several parts at once, press **Select** (or hold `Shift`) and drag a box over
+  empty space: every part whose middle is inside it is selected. `Shift`-click adds one
+  part or takes it out, `Ctrl`+`A` selects everything, and `Shift`-click on a row of the
+  parts list selects every part of that row. The panel then sets their joint strength
+  together, or removes them.
 - Without a mouse: `[` and `]` step through the placed parts, `Enter` on a part in the
   list joins one onto the selected part, and `N` moves it to the next place it fits.
 - The search box knows sizes ("40mm", "20x60"), part numbers ("20KG") and everyday words
   ("lid", "connector", "bracket").
 - Undo and redo cover everything. The build is kept in the browser as you go.
 
+**Joint strength.** The author publishes every part that grips at ten strengths, 0
+(loosest) to 9, and recommends one for each part: 1 for a short twist block, 4 for a
+200 mm one. The builder starts every part at the strength he recommends. Which strength
+suits a printer and a filament is usually a step or two either side of that, the same way
+for every part, so a build has one setting, **Joint strength**: "As recommended", "1
+tighter", "2 looser". A part, or several selected together, can be given a strength of
+its own for a joint that has to hold harder (`+` and `-`). The parts list shows the
+strength of every part, and a part used at two strengths gets two rows. "Print a test
+first" opens a small set of the same joints at several strengths to try on your printer.
+
+Every strength is the author's own: his plug shapes for that strength are put on the
+part in place of the ones it is kept with, and wherever his file of that strength differs
+besides (the strength number engraved on the part, above all) that piece of his file is
+set in. Every part at every strength is checked against his own file. Joiners, which grip with bumps and threads of their
+own, use his file of that strength whole.
+
 **Printing.** "Download for printing" shows how many of each part to print, about how
-much filament that is, and which parts want finer layers, then gives a zip with one STL
-for each kind of part, a parts list with the author's print advice, and the build itself
-so it can be opened again.
+much filament that is, and which parts want finer layers, then gives a zip with:
+
+- print plates: 3MF files with every part laid out on a bed of the size you pick, each
+  as many times as the build needs, ready to open in a slicer. Parts that want finer
+  layers get plates of their own;
+- one STL for each kind of part at each strength, named the way the author names his
+  (`MADOS-20AA-1`), for laying out yourself;
+- a parts list with the author's print advice, and the build itself so it can be opened
+  again.
 
 ![The list of what to print, with sizes and layer heights](docs/print-list.png)
 
@@ -99,8 +126,8 @@ official joint shapes. Four kinds of joint are modelled:
 
 ## Parts made to order
 
-Blocks, twist blocks and covers of any size need nothing: the page makes them. Wrap
-covers and hinges at other lengths, and other plug strengths, are made by the launcher,
+Blocks, twist blocks and covers of any size need nothing: the page makes them, at any
+joint strength. Wrap covers and hinges at other lengths are made by the launcher,
 which needs the Python packages and the author's files; until both are there, "Make a
 part in another size" says which is missing:
 
@@ -161,6 +188,7 @@ is made.
       joints.py          the joint rule, and finding the joints on a part
       parts.py           parts as bodies, joints and moving joints
       catalogue.py       a part's record, meshes and description for the app
+      strength.py        one stored part, printable at any of the author's ten strengths
       meshfile.py        the compact mesh format
       store.py           how the data files are named and kept
       server.py          the local launcher, and parts made to order
@@ -173,7 +201,8 @@ is made.
 
 In `app/`: `kit.js` is the joint rule, `scene.js` the build, `app.js` the interface,
 `families.js` parts at any size, `mesh.js` and `solid.js` read meshes and join sections
-for printing, `stl.js` and `zip.js` write the download, `share.js` puts a build in a
+for printing and make a part at another joint strength, `stl.js`, `plate.js` and `zip.js`
+write the download, `share.js` puts a build in a
 link, and `sw.js` with `offline.js` keeps the builder working without a connection. `AGENTS.md` says how the code is arranged and what it keeps to; `CONTRIBUTING.md`
 says how to report a wrong joint or send a change.
 

@@ -42,6 +42,10 @@ for part in catalog["parts"]:
             again(body, "mesh")
     if "mesh" in part["print"]:
         again(part["print"], "mesh")
+    for strength in part["print"].get("strengths", {}):                # a joiner's other strengths
+        again(part["print"]["strengths"], strength)
+    for kept in part["print"].get("patches", {}).values():             # where his file of a strength differs besides its plugs
+        again(kept, "mesh")
     # a picture keeps its content; one from before pictures were named is thumbs/<part>.png
     rel = part.get("thumb") or f"thumbs/{part['name']}.png"
     if os.path.exists(os.path.join(OUT, rel)):
@@ -51,6 +55,9 @@ for part in catalog["parts"]:
         part["thumb"] = stored
     else:
         part.pop("thumb", None)
+for rels in catalog.get("plugs", {}).values():                         # the plugs of every strength
+    for k in range(len(rels)):
+        again(rels, k)
 for tile in catalog.get("tiles", []):
     again(tile, "mesh")
     again(tile, "print")

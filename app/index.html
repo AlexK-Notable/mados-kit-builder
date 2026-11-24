@@ -100,6 +100,7 @@
       <div id="hint" role="status" aria-live="polite"></div>
     </div>
     <div id="viewtools">
+      <button id="box-select" aria-pressed="false" title="Drag a box round several parts to select them, to set their joint strength or remove them together (B, or hold Shift and drag)">Select</button>
       <button id="fit" title="Bring the whole build into view (Home)">Fit</button>
       <button id="zoom-in" class="icon" title="Zoom in" aria-label="Zoom in">+</button>
       <button id="zoom-out" class="icon" title="Zoom out" aria-label="Zoom out">&minus;</button>
@@ -110,6 +111,7 @@
         <button data-view="top" title="Look from above">Top</button>
       </span>
     </div>
+    <div id="lasso" hidden></div>
     <button id="panel-toggle" hidden></button>
     <div id="dropzone" hidden><div>Drop a saved build here to open it</div></div>
     <div id="loading">Loading parts&hellip;</div>
@@ -150,7 +152,9 @@
     <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>undo. <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redoes</td></tr>
     <tr><th colspan="2">Looking around</th></tr>
     <tr><td>Drag the background</td><td>turn the view. The wheel or a pinch zooms</td></tr>
-    <tr><td>Right-drag, or <kbd>Shift</kbd>-drag</td><td>slide the view sideways</td></tr>
+    <tr><td>Right-drag, or <kbd>Ctrl</kbd>-drag</td><td>slide the view sideways</td></tr>
+    <tr><td><kbd>Shift</kbd>-drag on empty space</td><td>draw a box to select several parts (or press <b>Select</b>, or <kbd>B</kbd>). <kbd>Shift</kbd>-click adds one part or takes it out; <kbd>Ctrl</kbd>+<kbd>A</kbd> selects everything</td></tr>
+    <tr><td><kbd>+</kbd> <kbd>&minus;</kbd></td><td>make the selected parts' joints one step tighter or looser</td></tr>
     <tr><td>Double-click a part</td><td>bring it to the middle of the view</td></tr>
     <tr><td><kbd>Home</kbd></td><td>bring the whole build into view</td></tr>
     <tr><th colspan="2">Without a mouse</th></tr>
@@ -200,6 +204,26 @@
   <h2>What to print</h2>
   <div id="export-body"></div>
   <label class="check"><input type="checkbox" id="export-preview" checked> Include a model of the whole build put together, for looking at</label>
+  <label class="check"><input type="checkbox" id="export-plates" checked> Lay the parts out on print plates, each as many times as needed, ready to slice</label>
+  <div id="export-bed-row" class="bed-row">
+    <label>Printer bed
+      <select id="export-bed">
+        <option value="180x180">180 &times; 180 mm</option>
+        <option value="200x200">200 &times; 200 mm</option>
+        <option value="220x220" selected>220 &times; 220 mm</option>
+        <option value="235x235">235 &times; 235 mm</option>
+        <option value="250x210">250 &times; 210 mm</option>
+        <option value="256x256">256 &times; 256 mm</option>
+        <option value="300x300">300 &times; 300 mm</option>
+        <option value="350x350">350 &times; 350 mm</option>
+        <option value="other">Another size&hellip;</option>
+      </select>
+    </label>
+    <span id="export-bed-other" hidden>
+      <input id="export-bed-width" type="number" min="60" max="1000" value="220" aria-label="Bed width in mm"> &times;
+      <input id="export-bed-depth" type="number" min="60" max="1000" value="220" aria-label="Bed depth in mm"> mm
+    </span>
+  </div>
   <div class="row end"><button id="export-list" title="Copy this list as text">Copy the list</button><span class="grow"></span><button id="export-cancel">Cancel</button><button id="export-go" class="primary">Download the files</button></div>
 </dialog>
 

@@ -40,13 +40,23 @@ export function nameAt(family, size) {
   return family.official?.[sizeKey(family, size)] ?? fill(family.name, size);
 }
 
+// The strength the author recommends for a family's part of a size: that of his own part
+// nearest below it, going by its length or by how many plugs it has (tools/build_tiles.py
+// says where each family's numbers come from).
+function recommendedFor(family, size, plugs) {
+  const measure = family.fit.by === "plugs" ? plugs : size[family.fit.by];
+  let out = family.fit.made;
+  for (const [from, strength] of family.fit.recommended) if (measure >= from) out = strength;
+  return out;
+}
+
 // The catalogue record of a family's part at a size.
 export function makePart(catalog, family, size) {
   const section = catalog.section;
   const counts = family.axes.map((ax) => Math.round(size[ax.param] / section));
   const starts = family.axes.map((ax) => ax.origin * size[ax.param]);
   const roles = counts.map(rolesFor);
-  const ports = [], voxels = [], tiles = [];
+  const ports = [], voxels = [], tiles = [], places = [];
   const box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
   const at = counts.map(() => 0);
   for (;;) {
@@ -56,6 +66,8 @@ export function makePart(catalog, family, size) {
     const shifted = (v) => [v[0] + origin[0], v[1] + origin[1], v[2] + origin[2]];
     for (const p of role.ports) ports.push({ ...p, pos: shifted(p.pos) });
     for (const v of role.voxels) voxels.push(shifted(v));
+    // a plug's place is the top three rows of a 4 x 4, row by row: the shift is every fourth number
+    for (const [kind, strength, follows, t] of role.plugs ?? []) places.push([kind, strength, follows, t.map((v, i) => (i % 4 === 3 ? v + origin[(i - 3) / 4] : v))]);
     tiles.push([role.tile, origin]);
     for (let k = 0; k < 3; k++) {
       box[k] = Math.min(box[k], role.bbox[k] + origin[k]);
@@ -77,7 +89,8 @@ export function makePart(catalog, family, size) {
     note: `${family.note}${counted} Made by this builder from the official joint shapes.`,
     family: family.id, size: { ...size }, meta, joints: [],
     bodies: [{ name: "body", bbox: box, ports, voxels, tiles, triangles: sum("triangles") }],
-    print: { tiles, triangles: sum("print_triangles"), volume_mm3: Math.round(sum("volume_mm3") * 10) / 10, bbox: box, layer: "0.2" },
+    print: { tiles, triangles: sum("print_triangles"), volume_mm3: Math.round(sum("volume_mm3") * 10) / 10, bbox: box, layer: "0.2", ...(places.length ? { plugs: places } : {}) },
+    ...(family.fit && places.length ? { fit: { made: family.fit.made, recommended: recommendedFor(family, size, places.length) } } : {}),
   };
 }
 

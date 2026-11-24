@@ -370,6 +370,49 @@ async page => {
   await page.click("#theme");
   check("the colours switch between light and dark", dark === "dark" && (await app(() => document.documentElement.dataset.theme)) === "light");
 
+  // joint strength, and selecting several parts with a box
+  await reset([{ name: "MADOS-20AA", pose: { r: I, t: [0, 0, 10] }, angles: [] }, { name: "MADOS-20AA", pose: { r: I, t: [60, 0, 10] }, angles: [] },
+               { name: "MADOS-20BA", pose: { r: I, t: [120, 0, 10] }, angles: [] }]);
+  const strengths = () => app(() => { const sc = window.madosApp.scene; return sc.items.map((it) => sc.strengthOf(it)); });
+  const rowsText = () => app(() => [...document.querySelectorAll("#bom tr")].map((tr) => tr.textContent.replace(/\s+/g, " ").trim()));
+  check("parts start at the strength the author recommends, and the list says it", JSON.stringify(await strengths()) === "[1,1,null]" && (await rowsText()).some((t) => /2 × .*Twist Block.*strength 1/.test(t)), (await rowsText()).join(" | "));
+  const spots = await Promise.all([[0, 0, 10], [60, 0, 10], [120, 0, 10]].map((p) => at(p)));
+  const low = [Math.min(...spots.map((p) => p[0])) - 70, Math.min(...spots.map((p) => p[1])) - 90];
+  const high = [Math.max(...spots.map((p) => p[0])) + 70, Math.max(...spots.map((p) => p[1])) + 90];
+  await page.keyboard.down("Shift");
+  await page.mouse.move(low[0], low[1]);
+  await page.mouse.down();
+  await page.mouse.move(low[0] + 30, low[1] + 30, { steps: 3 });
+  await page.mouse.move(high[0], high[1], { steps: 8 });
+  const boxShown = await app(() => !document.getElementById("lasso").hidden);
+  await page.mouse.up();
+  await page.keyboard.up("Shift");
+  await page.waitForTimeout(200);
+  const boxed = await app(() => window.madosApp.chosen.length);
+  check("Shift-drag over empty space draws a box and selects the parts inside it", boxShown && boxed === 3, `${boxed} selected`);
+  await page.click('#selection button[data-do="fit-tighter"]');
+  await page.waitForTimeout(150);
+  const tighter = await strengths();
+  check("Tighter moves every selected part that has a strength one step, and leaves the block alone", JSON.stringify(tighter) === "[2,2,null]" && (await app(() => window.madosApp.chosen.length)) === 3, JSON.stringify(tighter));
+  await page.keyboard.press("Escape");
+  await app(() => window.madosApp.select(1));
+  await page.keyboard.press("+");
+  await page.waitForTimeout(150);
+  const split = await rowsText();
+  check("a part given its own strength gets its own row in the parts list", JSON.stringify(await strengths()) === "[3,2,null]" && split.filter((t) => /Twist Block/.test(t)).length === 2, split.join(" | "));
+  await page.click('#selection button[data-do="fit-build"]');
+  await page.selectOption("#joint-fit", "-1");
+  await page.waitForTimeout(150);
+  check("the build's joint strength moves the parts that follow it, not one with a strength of its own", JSON.stringify(await strengths()) === "[0,2,null]", JSON.stringify(await strengths()));
+  const handed = await app(async () => {
+    const files = await window.madosApp.printFiles({ preview: false, bed: [220, 220] });
+    return files.map((f) => `${f.name}:${f.data.byteLength ?? f.data.length}`);
+  });
+  check("the download has a file for each strength used and a plate ready to slice",
+    handed.some((n) => /^print\/1x_MADOS-20AA-0\.stl:\d{5,}/.test(n)) && handed.some((n) => /^print\/1x_MADOS-20AA-2\.stl:\d{5,}/.test(n))
+    && handed.some((n) => /^print\/1x_MADOS-20BA\.stl/.test(n)) && handed.some((n) => /^plates\/0\.2mm-layers_plate-1\.3mf:\d{5,}/.test(n)), handed.join(" "));
+  await page.keyboard.press("Control+z");
+
   await reset([{ name: "channel_40", pose: { r: I, t: [0, 0, 10] }, angles: [] }]);
   await page.setViewportSize({ width: 420, height: 800 });
   await page.waitForTimeout(300);

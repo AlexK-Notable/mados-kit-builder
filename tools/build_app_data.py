@@ -6,6 +6,7 @@ reference answers the JavaScript tests are checked against.
     python tools/build_app_data.py
     python tools/build_tiles.py                     # then cut blocks, twist blocks and covers into shared sections
     ... build_app_data.py MADOS-20FM MADOS-20BB     # rebuild only these parts (about a minute)
+    ... build_app_data.py --keep-drawn NAME...      # the same, keeping each part's display meshes and picture
 """
 import json
 import os
@@ -19,6 +20,7 @@ from mados_kit import joints as K
 from mados_kit import parts as P
 from mados_kit import generators as M
 from mados_kit import store
+from mados_kit import strength as S
 
 OUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "data"))
 VECTORS = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests", "app", "vectors.json"))
@@ -34,7 +36,8 @@ catalog = {
 }
 # With part names as arguments, only those parts are rebuilt and put back into the existing
 # catalogue, and only the reference answers between them are redone.
-only = set(sys.argv[1:])
+KEEP_DRAWN = "--keep-drawn" in sys.argv        # a part's shape has not changed, only what is printed: keep its display meshes and picture
+only = set(a for a in sys.argv[1:] if not a.startswith("--"))
 TILED = {"MADOS-20BA", "MADOS-20BB", "MADOS-20BC", "MADOS-20BD", "MADOS-20BE", "MADOS-20AA", "MADOS-20AB", "MADOS-20AC",
          "MADOS-20AD", "MADOS-20AE", "MADOS-20AI", "MADOS-20AT", "MADOS-20AU", "MADOS-20AV"}      # as in tools/build_tiles.py
 before = json.load(open(os.path.join(OUT, "catalog.json"))) if os.path.exists(os.path.join(OUT, "catalog.json")) else None
@@ -52,10 +55,11 @@ for label, category, note, make, print_mesh in A.catalogue():
             catalog["parts"].append(was)
             continue
     part = make()
-    entry = A.export_part(part, label, category, note, OUT, print_mesh() if print_mesh else None)
+    entry = A.export_part(part, label, category, note, OUT, print_mesh() if print_mesh else None,
+                          drawn_as=drawn.get(part["name"]) if KEEP_DRAWN else None)
     # the part's picture is kept while its display meshes are the very same files (they are named by their content)
     was = drawn.get(entry["name"])
-    if was and was.get("thumb") and [b.get("mesh") for b in was["bodies"]] == [b["mesh"] for b in entry["bodies"]]:
+    if was and was.get("thumb") and (KEEP_DRAWN or [b.get("mesh") for b in was["bodies"]] == [b["mesh"] for b in entry["bodies"]]):
         entry["thumb"] = was["thumb"]
     catalog["parts"].append(entry)
     built[part["name"]] = (part, entry)
@@ -63,6 +67,11 @@ for label, category, note, make, print_mesh in A.catalogue():
     vox = sum(len(b["voxels"]) for b in entry["bodies"])
     print(f"{part['name']}: {len(entry['bodies'])} bodies, {ports} ports, {vox} cubes, "
           f"{len(entry['joints'])} joints  [{time.time() - t0:.0f}s]", flush=True)
+# The author's plugs, every kind at every strength, for the app to put on a part in place of
+# the ones it was stored with (strength.py).  Named by their content, so rebuilding them changes nothing.
+catalog["plugs"] = {kind: [A.write_mesh(S.plug_tool(kind, strength), OUT, f"print/plug_{kind}_{strength}.mkm")[0] for strength in S.STRENGTHS]
+                    for kind in K.PLUG_KINDS}
+catalog["plug_cut"] = {kind: v["height"] + S.CUT_OVER for kind, v in K.PLUG_KINDS.items()}
 if only:                                                # the sections and families tools/build_tiles.py made stay as they are
     for key in ("tiles", "families", "section"):
         if key in previous:
