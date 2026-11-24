@@ -43,7 +43,7 @@ export function nameAt(family, size) {
 // The strength the author recommends for a family's part of a size: that of his own part
 // nearest below it, going by its length or by how many plugs it has (tools/build_tiles.py
 // says where each family's numbers come from).
-function recommendedFor(family, size, plugs) {
+export function recommendedFor(family, size, plugs) {
   const measure = family.fit.by === "plugs" ? plugs : size[family.fit.by];
   let out = family.fit.made;
   for (const [from, strength] of family.fit.recommended) if (measure >= from) out = strength;

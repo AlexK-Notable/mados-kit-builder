@@ -170,7 +170,7 @@ def his_print(number, part):
     MADOS-20AA-1_Recommended.stl.)  None where there is no such file on disk or it does not
     lie where the STEP file does."""
     import glob
-    if S.recommended(number) is None or not glob.glob(os.path.join(M.UP, number, "*Recommended.stl")):
+    if S.recommended(number) is None or not glob.glob(os.path.join(M.UP, number, "*Recommended*.stl")):
         return None
     try:
         bodies, _ = M.recommended_stl(number)

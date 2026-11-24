@@ -258,7 +258,7 @@ async page => {
       return `${f.name.split("/").pop()} ${Math.round((hi - lo) * 10) / 10}`;
     }).sort().join("; ");
   });
-  check("a build of made sizes joins and downloads as print files of those sizes", s.joints === 4 && s.pieces === 1 && made === "1x_channel_140.stl 140; 1x_twist_60_s3.stl 63.6", `${s.joints} ${made}`);
+  check("a build of made sizes joins and downloads as print files of those sizes", s.joints === 4 && s.pieces === 1 && made === "1x_channel_140.stl 140; 1x_twist_60-2.stl 63.6", `${s.joints} ${made}`);
   await reset();
 
   // ---- what a newcomer tries without reading anything

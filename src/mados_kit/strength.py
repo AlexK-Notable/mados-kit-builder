@@ -59,7 +59,7 @@ def published(number):
     """The strengths the author publishes this part at, as a sorted list."""
     out = set()
     for name in _files(number):
-        found = re.search(r"-(\d)(?:_Recommended)?\.stl$", name)
+        found = re.search(r"-(\d)(?:_Recommended)?\s*\.stl$", name)
         if found:
             out.add(int(found.group(1)))
     return sorted(out)
@@ -164,7 +164,7 @@ def stl_solid(path):
 def stl_at(number, strength):
     """The author's own file of a part at a strength, or None when it is not on disk."""
     for path in glob.glob(os.path.join(M.UP, number, "*.stl")):
-        if re.search(rf"-{strength}(?:_Recommended)?\.stl$", os.path.basename(path)):
+        if re.search(rf"-{strength}(?:_Recommended)?\s*\.stl$", os.path.basename(path)):
             return stl_solid(path)
     return None
 

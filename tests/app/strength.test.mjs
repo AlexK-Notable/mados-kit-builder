@@ -103,7 +103,7 @@ test("what the author recommends for a made size follows his own parts", () => {
   assert.deepEqual([cover(20, 20), cover(20, 40), cover(20, 80), cover(20, 100), cover(40, 100)], [2, 2, 2, 1, 1]);
   assert.equal(families.makePart(catalog, family("block"), { length: 80 }).fit, undefined, "a block has only sockets");
   // where he makes the size himself, his recommendation is what the family would have said
-  for (const [length, name] of Object.entries(family("twist").official)) assert.equal(twist(Number(length)), partNamed(name).fit.recommended, name);
+  for (const [length, name] of Object.entries(family("twist").official)) assert.equal(families.recommendedFor(family("twist"), { length: Number(length) }, 0), partNamed(name).fit.recommended, name);
 });
 
 test("a build prints each part at the strength recommended for it, moved by the build's setting", () => {
