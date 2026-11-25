@@ -469,3 +469,46 @@ test("a threaded nut goes into a hole the one way its tab lets it", () => {
   assert.equal(tabIn.length, 2);
   assert.equal(ways.length - tabIn.length, 4);
 });
+
+test("a through-hole joiner's tabbed end sits at a face, never inside a block", () => {
+  const inside = (p, b) => [0, 1, 2].every((i) => p[i] > b.min[i] + 0.5 && p[i] < b.max[i] - 0.5);
+  for (const name of ["MADOS-20FT", "MADOS-20FU"]) {
+    // into a 60 mm block: every way it goes in leaves the tab in the opening of one of the block's faces
+    const { scene, one, onFloor, boxOf } = fresh();
+    const long = onFloor("channel_60");
+    const at = scene.tabOf(name);
+    assert.ok(at >= 0, `${name} has a tab`);
+    const ways = scene.placementsOn(one(name), scene.context(), long);
+    assert.ok(ways.length > 0, `${name} goes into a 60 mm block`);
+    for (const w of ways) {
+      const tab = kit.portsOf(scene.parts.get(name), w.pose, [])[at];
+      assert.ok(!inside(tab.pos, boxOf(long)), `${name}: tab at ${tab.pos} is not inside the block`);
+      assert.ok(scene.context().fixed.some((q) => kit.mates(tab, q)), `${name}: the tab is in a face's opening`);
+    }
+  }
+  // a joiner left standing tab end up (as after the block it was pushed in by is taken away):
+  // a 20 mm block still goes on, its far face level with the tab; a longer one would swallow the tab
+  const { scene, one, onFloor, boxOf } = fresh();
+  const base = onFloor("MADOS-20BA");
+  const ports = scene.payloadPorts(one("MADOS-20FT")), ctx0 = scene.context();
+  const top = ctx0.fixed.filter((p) => p.system === "hole" && p.normal[2] > 0.9);
+  const up = kit.candidatePoses(ports, ctx0.fixed, ctx0.index, top).find((c) => !kit.evaluate(ports, ctx0.index, c.pose).engaged.some(([m]) => m.thread));
+  assert.ok(up, "the joiner can be described plain end in the block");
+  assert.equal(scene.fits(one("MADOS-20FT"), up.pose, ctx0), false, "but it is not put in that way");
+  const joiner = scene.add("MADOS-20FT", up.pose, []).id;
+  const tab = scene.itemPorts(scene.get(joiner))[scene.tabOf("MADOS-20FT")];
+  assert.ok(Math.abs(tab.pos[2] - 40) < 1e-6, "its tab is 20 mm above the block");
+  const short = scene.placementsOn(one("MADOS-20BA"), scene.context(), joiner);
+  assert.ok(short.length > 0, "a 20 mm block goes onto it");
+  for (const name of ["channel_40", "channel_60"]) {
+    const ctx = scene.context();
+    for (const w of scene.placementsOn(one(name), ctx, joiner)) {
+      const b = scene.payloadBox(w.payload, w.pose);
+      assert.ok(!inside(tab.pos, b), `${name} does not swallow the tab`);
+    }
+    const hit = [0, 0, 40];
+    const got = scene.choosePlacement(one(name), ctx, { hit, normal: [0, 0, 1], viewDir: VIEW, prefR: R0 });
+    if (!got) assert.match(scene.whyNot(one(name), ctx, hit), /small tab/);
+  }
+  void base; void boxOf;
+});
