@@ -238,7 +238,65 @@ export class Scene {
   // Everything a drag needs to know about the parts that stay put.
   context(exclude = []) {
     const fixed = this.fixedPorts(exclude);
-    return { fixed, index: this.indexOf(exclude), occupied: this.occupied(exclude), cores: this.cores(exclude) };
+    return { fixed, index: this.indexOf(exclude), occupied: this.occupied(exclude), cores: this.cores(exclude), tabbed: this.tabbed(exclude) };
+  }
+
+  // ---------------------------------------------------------------- a joiner's tab sits at a face
+  // A through-hole joiner has a small tab on one end, which sits in the notch of the face
+  // the joiner was pushed in by and stops it there: the tab "always stops at the first face
+  // it meets" [the owner of this project, from handling the printed parts, 2026-11-24].  So
+  // that end is never inside a block: wherever such a joiner holds anything, its tabbed end
+  // is in the opening of a face.  The stud with the tab is the one stud of the joiner that
+  // has a thread (src/mados_kit/parts.py, joiner_tab); a joiner with one stud only (the
+  // nuts) has no other way to go in.
+
+  // Which of a part's ports is the stud with the tab, when it has other studs too: its place in the list, or -1.
+  tabOf(name) {
+    const part = this.parts.get(name);
+    if (part.tab !== undefined) return part.tab;
+    const ports = part.bodies.length === 1 ? part.bodies[0].ports : [];
+    const studs = ports.filter((p) => kit.isPlug(p) && p.system === "hole" && !p.passive);
+    const keyed = studs.filter((p) => p.thread);
+    return part.tab = studs.length > 1 && keyed.length === 1 ? ports.indexOf(keyed[0]) : -1;
+  }
+
+  // The joiners with a tab among the parts that stay put: [{id, studs, tab}], ports in the world.
+  tabbed(exclude = []) {
+    const skip = new Set(exclude), out = [];
+    for (const it of this.items) {
+      if (skip.has(it.id)) continue;
+      const at = this.tabOf(it.name);
+      if (at < 0) continue;
+      const ports = this.itemPorts(it);
+      out.push({ id: it.id, tab: ports[at], studs: ports.filter((p) => kit.isPlug(p) && p.system === "hole" && !p.passive) });
+    }
+    return out;
+  }
+
+  // With the payload at this pose, is the tabbed end of every joiner it has to do with at a face?
+  // Those are the payload's own joiners, and the ones already there that it would hold.
+  tabsSeated(payload, pose, ctx) {
+    if (ctx.anyTab) return true;                          // whyNot asks what would fit without this rule
+    const mine = payload.map((m) => this.tabOf(m.name));
+    if (!ctx.tabbed?.length && mine.every((at) => at < 0)) return true;
+    const groups = payload.map((m) => kit.portsOf(this.parts.get(m.name), kit.compose(pose, m.rel), m.angles));
+    const own = new Map();
+    groups.forEach((ports, k) => ports.forEach((p) => {
+      const key = kit.posKey(p.pos), here = own.get(key);
+      if (here) here.push([p, k]); else own.set(key, [[p, k]]);
+    }));
+    const carried = (stud, but = -1) => (own.get(kit.posKey(stud.pos)) ?? []).some(([q, k]) => k !== but && kit.mates(stud, q));
+    const standing = (stud, but = null) => (ctx.index.get(kit.posKey(stud.pos)) ?? []).some((q) => q.item !== but && kit.mates(stud, q));
+    for (let k = 0; k < payload.length; k++) {
+      if (mine[k] < 0) continue;
+      const tab = groups[k][mine[k]];
+      const held = groups[k].some((p) => kit.isPlug(p) && p.system === "hole" && !p.passive && (carried(p, k) || standing(p)));
+      if (held && !carried(tab, k) && !standing(tab)) return false;
+    }
+    for (const j of ctx.tabbed ?? []) {
+      if (j.studs.some((p) => carried(p)) && !carried(j.tab) && !standing(j.tab, j.id)) return false;
+    }
+    return true;
   }
 
   // ---------------------------------------------------------------- payloads
@@ -285,7 +343,7 @@ export class Scene {
   // Can the payload sit at this pose: above the ground and clear of the fixed parts.
   fits(payload, pose, ctx) {
     if (this.payloadBox(payload, pose).min[2] < -GROUND_SLACK) return false;
-    return !kit.overlaps(this.payloadVoxels(payload, pose), ctx.occupied) && !this.crossesJoiner(payload, pose, ctx);
+    return !kit.overlaps(this.payloadVoxels(payload, pose), ctx.occupied) && !this.crossesJoiner(payload, pose, ctx) && this.tabsSeated(payload, pose, ctx);
   }
 
   // A pose that rests the payload on the ground (z = 0) centred over (x, y), on the 5 mm grid.
@@ -382,6 +440,11 @@ export class Scene {
     if (this.payloadCores(payload, kit.IDENTITY).length) {
       const blocked = kit.candidatePoses(mine, ctx.fixed, ctx.index, near).some((c) => this.crossesJoiner(payload, c.pose, ctx) && this.fits(payload, c.pose, { ...ctx, cores: [] }));
       if (blocked) return "Another joiner is already in the way inside that block: only one can pass through the middle";
+    }
+    // a joiner, or a block onto a joiner, that would go on, were the joiner's tabbed end not to end up inside a block
+    if (ctx.tabbed?.length || payload.some((m) => this.tabOf(m.name) >= 0)) {
+      const inside = kit.candidatePoses(mine, ctx.fixed, ctx.index, near).some((c) => !this.tabsSeated(payload, c.pose, ctx) && this.fits(payload, c.pose, { ...ctx, anyTab: true }));
+      if (inside) return "The end of a joiner with the small tab stops at the first face it meets, so it cannot end up inside a block: the tab has to sit in the opening of a face";
     }
     if (!myPlugs && !plugsHere) return "Two sockets cannot join: put a part with plugs between them, such as a twist block, a Mini Block Half C or a grub joiner";
     if (!mySockets && !socketsHere) return "Two plugs cannot join: one side needs sockets";
