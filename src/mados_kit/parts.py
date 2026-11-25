@@ -42,6 +42,29 @@ def channel_block(length, across=(1, 1)):
     return rigid(name, "channel_block", mesh, K.detect_ports(mesh), length=length, across=list(across))
 
 
+@functools.lru_cache(maxsize=None)
+def _cube_ports():
+    (cube,) = M.stock_meshes(M.CUBE_SOURCE)
+    return K.detect_ports(cube)
+
+
+def joined_block(width, height, length):
+    """A block width x height x length mm (X, Z, Y) in one piece (generators.joined_block).
+    Its joints are those of the author's 20 mm block on every face tile that is outside:
+    the pieces those tiles are made of are that block's own faces."""
+    cells = (round(width / M.TILE), round(length / M.TILE), round(height / M.TILE))
+    mesh, _ = M.joined_block(cells)
+    ports, half = [], M.TILE / 2
+    for at in itertools.product(*[range(n) for n in cells]):
+        centre = [(at[k] - (cells[k] - 1) / 2) * M.TILE for k in range(3)]
+        for axis, side in M.BLOCK_FACES:
+            if (at[axis] == 0 and side < 0) or (at[axis] == cells[axis] - 1 and side > 0):
+                for p in _cube_ports():
+                    if abs(p["pos"][axis] - side * half) < 1e-6:
+                        ports.append({**p, "pos": [float(p["pos"][k] + centre[k]) for k in range(3)]})
+    return rigid(f"block_{width:g}x{height:g}x{length:g}", "joined_block", mesh, ports, width=width, height=height, length=length)
+
+
 def twist_block(length, strength, far_end=None):
     mesh, _ = M.twist_block(length, strength, far_end)
     name = f"twist_{length:g}_s{strength}" + (f"_{far_end}" if far_end else "")

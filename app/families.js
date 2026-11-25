@@ -40,6 +40,9 @@ export function nameAt(family, size) {
   return family.official?.[sizeKey(family, size)] ?? fill(family.name, size);
 }
 
+// Does the family have a part at this size: the author's own, or one made here?
+export const exists = (family, size) => Boolean(family.official?.[sizeKey(family, size)]) || allowed(family, size);
+
 // The strength the author recommends for a family's part of a size: that of his own part
 // nearest below it, going by its length or by how many plugs it has (tools/build_tiles.py
 // says where each family's numbers come from).

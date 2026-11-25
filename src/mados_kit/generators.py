@@ -10,6 +10,7 @@ Everything is generated at stock scale (10 mm joint cells); scaled() enlarges a 
 part, joints included.
 """
 import functools
+import itertools
 import glob
 import os
 import re
@@ -267,6 +268,137 @@ def channel_block(length, across=(1, 1)):
     solid = [b for b in block.decompose() if b.volume() > 0]
     info = dict(info, bodies=len(solid), closed_pockets=len(block.decompose()) - len(solid), sticks=nx * nz)
     return block, info
+
+
+# ---------------------------------------------------------------- joined block
+# A block more than one cell wide or high, joined the way the author joins the cells of his
+# long blocks.  Each 20 mm cell is six face pieces (the part of the cell nearest each face):
+#   - an outside face is that face of his 20 mm block, with its four sockets and its
+#     threaded opening;
+#   - a joined face is the piece his 100 mm block has at a boundary between two cells.  It
+#     has two shapes: one where the cell's opposite face is outside (his end cells), one
+#     where that is joined too (his middle cells).
+# Nothing of the two cells' walls or sockets is left between them, and the hollow inside
+# runs through, sideways as it does lengthwise in his.
+# [measured 2026-11-24, cad/misc/mados-wide-blocks/: face pieces of his cube 519.2 - 523.0 mm3,
+#  the +Y one turned onto the others differing from them by 0.05 - 6.4; a joined piece
+#  719.1 mm3 in the end cells of MADOS-20BE and 834.0 in its three middle cells, the same
+#  mirrored; his 40, 60 and 100 mm blocks made this way differ from his files by 13, 26 and
+#  52 mm3 of 6,662 - 17,952; blocks of 2 x 2 x 1 to 5 x 5 x 1 and 2 x 2 x 2 cells come out as
+#  one solid filling 44 - 50 % of their box, as a middle cell of his fills 47 %]
+CUBE_SOURCE = "MADOS-20BA"    # 20 mm plain block, centred on the origin
+SPECK = 1.0                   # mm3: leftovers of joining pieces along a shared plane [measured: none over 0.001]
+BLOCK_FACES = ((0, 1), (0, -1), (1, 1), (1, -1), (2, 1), (2, -1))                 # (axis, side)
+_ONTO = {(1, 1): [0, 0, 0], (1, -1): [0, 0, 180], (0, 1): [0, 0, -90], (0, -1): [0, 0, 90], (2, 1): [90, 0, 0], (2, -1): [-90, 0, 0]}
+
+
+def face_region(face, centre=(0.0, 0.0, 0.0), lap=0.0, beyond=0.0):
+    """The part of the 20 mm cube at `centre` that is nearer to one face than to any other,
+    reaching `lap` past the planes it shares with the regions of the other faces and
+    `beyond` past the face itself."""
+    import manifold3d as m3
+    import numpy as np
+    axis, side = face
+    half = TILE / 2
+    tip = [0.0, 0.0]
+    tip.insert(axis, -side * 2 * lap)                        # the planes move out by about lap
+    points = [[tip[k] + centre[k] for k in range(3)]]
+    for a in (-half - lap, half + lap):
+        for b in (-half - lap, half + lap):
+            p = [a, b]
+            p.insert(axis, side * (half + beyond))
+            points.append([p[k] + centre[k] for k in range(3)])
+    return m3.Manifold.hull_points(np.array(points, dtype=np.float64))
+
+
+JOIN_STRIP = 4.5              # mm of an outside face next to a joined face that is taken from his long block too
+                              # [measured: there his cube's side faces differ from his long block's, by 0.89 mm3 in the
+                              #  last 1 mm (the cube's rounded edge) and 0.07 mm3 3 - 4 mm in; nothing nearer the
+                              #  middle, where the threaded opening is, 5.3 mm from the middle of the face]
+
+
+def _turned(shape, face, turn):
+    return shape.rotate([0, turn, 0]).rotate(_ONTO[face])
+
+
+def _strip(face, toward, depth, centre=(0.0, 0.0, 0.0)):
+    """The slab of the cell within `depth` of the face `toward`."""
+    import manifold3d as m3
+    size, at = [3 * TILE] * 3, list(centre)
+    size[toward[0]] = depth
+    at[toward[0]] += toward[1] * (TILE / 2 - depth / 2)
+    return m3.Manifold.cube(size, True).translate(at)
+
+
+@functools.lru_cache(maxsize=None)
+def _face_pieces():
+    import manifold3d as m3
+    (cube,) = stock_meshes(CUBE_SOURCE)
+    (long,) = stock_meshes(BLOCK_SOURCE)
+    lo = load(BLOCK_SOURCE).bounding_box().min.Y
+    # pieces that only touch along a plane do not become one body: each reaches SECTION_LAP into its neighbours
+    # [measured: without it the clean-up of a 40 mm block took away 9.8 mm3 that is solid in the author's]
+    outside = {face: cube ^ face_region(face, lap=SECTION_LAP) for face in BLOCK_FACES}
+    first, middle = lo + 0.5 * TILE, lo + 2.5 * TILE
+    cells = {"end": (0.0, first, 0.0), "middle": (0.0, middle, 0.0)}      # joined at +Y: opposite face outside, or joined too
+    # a joined piece also reaches that far past the face, into the joined piece of the next cell
+    # [measured: without it a cell of a 40 x 40 x 20 block kept a crack of no thickness on that plane]
+    joined = {k: (long ^ face_region((1, 1), c, SECTION_LAP, SECTION_LAP)).translate([0, -c[1], 0]) for k, c in cells.items()}
+    # the walls of his long block beside that join: of each side face, the strip next to the +Y face
+    beside = {k: {side: (long ^ face_region(side, c, SECTION_LAP) ^ _strip(side, (1, 1), JOIN_STRIP + SECTION_LAP, c)).translate([0, -c[1], 0])
+                  for side in BLOCK_FACES if side[0] != 1} for k, c in cells.items()}
+
+    def apart(a, b):
+        return (a - b).volume() + (b - a).volume()
+    # the quarter turn that carries his +Y face onto each other face best, so walls and threads lie as his do
+    turn = {face: min((0, 90, 180, 270), key=lambda q: apart(outside[face], _turned(outside[(1, 1)], face, q))) for face in BLOCK_FACES}
+    # which of his side faces that turn carries onto each face next to it
+    lands = {}
+    for face in BLOCK_FACES:
+        for side in beside["end"]:
+            at = [0.0, 0.0, 0.0]
+            at[side[0]] = side[1] * 5.0
+            box = _turned(m3.Manifold.cube([1, 1, 1], True).translate(at), face, turn[face]).bounding_box()
+            where = [(box[k] + box[k + 3]) / 2 for k in range(3)]
+            axis = max(range(3), key=lambda k: abs(where[k]))
+            lands[(face, (axis, 1 if where[axis] > 0 else -1))] = side
+    return outside, joined, beside, turn, lands
+
+
+@functools.lru_cache(maxsize=None)
+def _cell_piece(face, kinds):
+    """One face piece of a cell.  kinds: for each of BLOCK_FACES in order, True where the cell is joined."""
+    outside, joined, beside, turn, lands = _face_pieces()
+    is_joined = dict(zip(BLOCK_FACES, kinds))
+    far = lambda f: "middle" if is_joined[(f[0], -f[1])] else "end"
+    if is_joined[face]:
+        return _turned(joined[far(face)], face, turn[face])
+    piece = outside[face]
+    added = []
+    for other in BLOCK_FACES:
+        if other[0] == face[0] or not is_joined[other]:
+            continue
+        piece = piece - _strip(face, other, JOIN_STRIP)
+        added.append(_turned(beside[far(other)][lands[(other, face)]], other, turn[other]))
+    for strip in added:                                    # at a corner where two joins meet, the walls of both
+        piece = piece + strip
+    return piece
+
+
+def joined_block(cells):
+    """A block of cells[0] x cells[1] x cells[2] 20 mm cells (X, Y, Z) in one piece, centred on
+    the origin.  Returns (Manifold, info)."""
+    import manifold3d as m3
+    pieces = []
+    for at in itertools.product(*[range(n) for n in cells]):
+        kinds = tuple(not ((at[axis] == 0 and side < 0) or (at[axis] == cells[axis] - 1 and side > 0)) for axis, side in BLOCK_FACES)
+        centre = [(at[k] - (cells[k] - 1) / 2) * TILE for k in range(3)]
+        pieces += [_cell_piece(face, kinds).translate(centre) for face in BLOCK_FACES]
+    whole = m3.Manifold.batch_boolean(pieces, m3.OpType.Add)
+    bodies = whole.decompose()
+    solid = [b for b in bodies if b.volume() > SPECK]
+    assert len(solid) == 1, f"{cells}: {len(solid)} solid pieces"
+    return solid[0], {"cells": list(cells), "specks": len(bodies) - 1}
 
 
 # ---------------------------------------------------------------- twist block

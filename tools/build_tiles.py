@@ -79,6 +79,21 @@ FAMILIES = [
      "official": {"20": "MADOS-20BA", "40": "MADOS-20BB", "60": "MADOS-20BC", "80": "MADOS-20BD", "100": "MADOS-20BE"},
      "make": lambda length: P.channel_block(length), "reference": [{"length": 40}, {"length": 80}], "check": [{"length": 60}, {"length": 100}],
      "note": "A hollow block with sockets on every face and no plugs, at a length the author does not publish."},
+    # A block more than one cell wide: cells joined sideways the way the author joins them lengthwise
+    # (generators.joined_block).  The width is the larger side of its cross-section, so a block one cell
+    # wide and high stays the family above.  A cell's sections depend on which of its sides are outside
+    # and on what the cell after it is, as for the other families.
+    {"id": "slab", "name": "block_{width}x{height}x{length}", "label": "Block {width} x {height} x {length} mm (generated)", "category": "Blocks",
+     "kind": "joined_block", "meta": {"width": "{width}", "height": "{height}", "length": "{length}"},
+     "params": [{"key": "width", "label": "Width", "min": 40, "max": 200, "step": 20},
+                {"key": "height", "label": "Height", "min": 20, "max": 200, "step": 20},
+                {"key": "length", "label": "Length", "min": 20, "max": 300, "step": 20}],
+     "axes": [{"param": "width", "axis": 0, "origin": -0.5}, {"param": "height", "axis": 2, "origin": -0.5}, {"param": "length", "axis": 1, "origin": -0.5}],
+     "make": lambda width, height, length: P.joined_block(width, height, length),
+     "reference": [{"width": w, "height": h, "length": l} for w in (40, 80) for h in (20, 40, 80) for l in (20, 40, 80)],
+     "check": [{"width": 60, "height": 40, "length": 60}, {"width": 40, "height": 60, "length": 100}, {"width": 100, "height": 20, "length": 20}],
+     "detect": {"width": 40, "height": 40, "length": 40},  # its joints are also looked for in the solid itself
+     "note": "A hollow block more than one cell wide, in one piece: its cells are joined sideways the way the author joins them along his long blocks. Sockets and a middle opening on every outside face tile, and no plugs."},
     {"id": "twist", "name": "twist_{length}_s3", "label": "Twist block {length} mm (generated)", "category": "Twist blocks",
      "kind": "twist_block", "meta": {"length": "{length}", "strength": 3, "far_end": None},
      "params": [{"key": "length", "label": "Length", "min": 40, "max": 300, "step": 20}],
@@ -328,9 +343,10 @@ for family in FAMILIES:
             box = section.bounding_box()
             plugs = [plug_moved(q, -origin) for q in entry["plugs"] if cell_of(plug_at(q), spans) == key]
             made[role] = {"tile": keep(section), "ports": ports, "voxels": voxels, "bbox": [round(float(v), 4) for v in box], "plugs": plugs}
-    wanted = {",".join(r) for r in itertools.product(*[ROLE_NAMES if ax["param"] != "none" else ("single",) for ax in family["axes"]])}
-    if family["params"][0]["min"] > SECTION:               # a size of one cell is the author's part, never a generated one
-        wanted = {r for r in wanted if "single" not in r.split(",")}
+    least = {p["key"]: p["min"] for p in family["params"]}
+    # one cell along an axis only where the family goes down to it: a block or twist block of one cell is the author's part
+    wanted = {r for r in itertools.product(*[ROLE_NAMES if least[ax["param"]] <= SECTION else ROLE_NAMES[1:] for ax in family["axes"]])}
+    wanted = {",".join(r) for r in wanted}
     check(wanted <= set(made), f"sections for every position: {sorted(made)}")
 
     def assemble(size):
@@ -366,7 +382,13 @@ for family in FAMILIES:
         check(same_plugs, f"{text}: the same {len(entry['plugs'])} plugs in the same places, for other strengths")
         check(same_cubes, f"{text}: the same {len(body['voxels'])} occupied cubes")
         check(off < APART_MAX, f"{text}: the same solid, no point more than {off * 1000:.1f} microns off the generator's ({len(placed)} sections)")
-    families.append({k: v for k, v in family.items() if k not in ("make", "reference", "check")} | {"roles": made})
+    if "detect" in family:                                 # joints given by rule: the same as those found in the solid
+        part = family["make"](**family["detect"])
+        given, found = sorted(map(port_key, part["bodies"][0]["ports"])), sorted(map(port_key, K.detect_ports(P.mesh_of(part))))
+        if given != found:
+            print("        only by rule:", sorted(set(given) - set(found))[:6], "\n        only found:", sorted(set(found) - set(given))[:6])
+        check(given == found, f"{' x '.join(str(v) for v in family['detect'].values())}: the {len(given)} joints it is given are the {len(found)} found in its solid")
+    families.append({k: v for k, v in family.items() if k not in ("make", "reference", "check", "detect")} | {"roles": made})
 
 # generated sizes the catalogue lists one by one are now made by their family
 pattern = [re.compile("^" + re.sub(r"\\\{\w+\\\}", r"\\d+", re.escape(f["name"])) + "$") for f in FAMILIES]

@@ -102,3 +102,42 @@ test("the author's parts kept as sections come back as his parts", async () => {
     assert.equal(drawn.length / 9, part.bodies[0].triangles);
   }
 });
+
+test("a block is made wider and higher than one cell, in one piece", async () => {
+  const slab = family("slab");
+  // 100 x 100 x 20 mm: 25 cells in a layer, every outside face tile with its four sockets and its opening
+  const part = families.makePart(catalog, slab, { width: 100, height: 100, length: 20 });
+  assert.equal(part.name, "block_100x100x20");
+  assert.equal(part.label, "Block 100 x 100 x 20 mm (generated)");
+  const ports = part.bodies[0].ports, faces = 2 * 25 + 4 * 5;
+  assert.deepEqual(part.bodies[0].bbox.map((v) => Math.round(v)), [-50, -10, -50, 50, 10, 50]);
+  assert.equal(ports.filter((p) => p.kind === "socket" && !p.system).length, 4 * faces, "four sockets a face tile, none between the cells");
+  assert.equal(ports.filter((p) => p.system === "hole").length, faces, "one opening a face tile");
+  assert.ok(ports.every((p) => [0, 1, 2].some((k) => Math.abs(Math.abs(p.pos[k]) - [50, 10, 50][k]) < 1e-6)), "every joint is on the outside");
+  assert.equal(new Set(ports.filter((p) => p.thread).map((p) => p.thread.join(","))).size, 1, "its threads all belong together");
+  assert.equal(part.bodies[0].tiles.length, 25);
+  assert.ok(!part.fit, "it has no plugs, so no joint strength");
+  // and as flat the other way, and as a beam: closed solids of the volume their sections add up to
+  for (const size of [{ width: 100, height: 100, length: 20 }, { width: 100, height: 20, length: 100 }, { width: 40, height: 60, length: 120 }]) {
+    const made = families.makePart(catalog, slab, size);
+    const got = measure(await joined(await sections(made.print.tiles, "print")));
+    assert.equal(got.open, 0, `${made.name}: every edge is shared by two triangles`);
+    assert.ok(Math.abs(got.volume - made.print.volume_mm3) < 0.002 * made.print.volume_mm3, `${made.name}: ${got.volume} mm3 against ${made.print.volume_mm3}`);
+  }
+});
+
+test("a wide block has its own name and joins like any other part", () => {
+  const slab = family("slab");
+  assert.equal(families.nameAt(slab, { width: 40, height: 20, length: 120 }), "block_40x20x120");
+  assert.equal(families.fromName(catalog, "block_20x20x120"), null, "one cell wide and high is the block family's");
+  assert.equal(families.fromName(catalog, "channel_120").family.id, "block");
+  assert.deepEqual(families.fromName(catalog, "block_40x20x20").size, { width: 40, height: 20, length: 20 });
+  assert.ok(families.exists(slab, { width: 200, height: 200, length: 300 }) && !families.exists(slab, { width: 220, height: 20, length: 20 }));
+  // a twist block plugs into the top of a wide block, and a grub joiner goes into its side
+  const scene = new Scene(catalog);
+  const one = (name) => [{ name, angles: [], rel: kit.IDENTITY }];
+  const base = scene.place(one("block_60x20x60"), scene.groundPose(one("block_60x20x60"), kit.IDENTITY.r, 0, 0))[0];
+  const top = scene.choosePlacement(one("MADOS-20AA"), scene.context(), { hit: [20, 20, 20], normal: [0, 0, 1], viewDir: [0.5, 0.5, -0.7], prefR: kit.IDENTITY.r });
+  assert.equal(top?.engaged, 4, "four plugs into four sockets of one face tile");
+  assert.ok(scene.placementsOn(one("MADOS-20GE"), scene.context(), base).length > 0, "a grub joiner goes into its openings");
+});

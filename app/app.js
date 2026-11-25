@@ -1756,7 +1756,7 @@ function addFamilyCard(family) {
   const lowest = (k) => Math.min(family.params[k].min, ...official.map((s) => s[k]));
   const read = () => { try { return JSON.parse(store.get(`${STORE}-size-${family.id}`) ?? "null"); } catch { return null; } };
   const fits = (s) => s && family.params.every((p, k) => Number.isInteger(s[p.key]) && s[p.key] >= lowest(k) && s[p.key] <= p.max && s[p.key] % p.step === 0);
-  const exists = (s) => Boolean(family.official?.[families.sizeKey(family, s)]) || families.allowed(family, s);
+  const exists = (s) => families.exists(family, s);
   let size = read();
   if (!fits(size) || !exists(size)) size = Object.fromEntries(family.params.map((p, k) => [p.key, official.length ? official.reduce((a, b) => (a[k] <= b[k] ? a : b))[k] : p.min]));
   if (!exists(size)) size = Object.fromEntries(family.params.map((p) => [p.key, p.min]));
@@ -1809,13 +1809,15 @@ function addFamilyCard(family) {
   card.members = () => Object.entries(family.official ?? {}).map(([key, name]) => ({ part: scene.parts.get(name), size: Object.fromEntries(family.params.map((p, k) => [p.key, Number(key.split("x")[k])])) }));
   card.setSize = set;
   card.sizeFor = (words) => {
-    // "120mm" or "40x60" typed into the search picks that size
+    // "120mm", "40x60" or "100x100x20" typed into the search picks that size; with fewer numbers than the family
+    // has sizes, one number is its length and two are its first and its last (a block 100 x 100 at the height it has)
     for (const w of words) {
-      const m = /^(\d+)(?:x(\d+))?(?:mm)?$/.exec(w);
+      const m = /^(\d+)(?:x(\d+))?(?:x(\d+))?(?:mm)?$/.exec(w);
       if (!m) continue;
-      const nums = [m[1], m[2]].filter(Boolean).map(Number);
+      const nums = [m[1], m[2], m[3]].filter(Boolean).map(Number);
       const wanted = family.params.length === nums.length ? Object.fromEntries(family.params.map((p, k) => [p.key, nums[k]]))
-        : family.params.length === 1 || nums.length !== 1 ? null : { ...size, [family.params.at(-1).key]: nums[0] };
+        : family.params.length > nums.length && nums.length === 1 ? { ...size, [family.params.at(-1).key]: nums[0] }
+        : family.params.length > nums.length ? { ...size, [family.params[0].key]: nums[0], [family.params.at(-1).key]: nums[1] } : null;
       if (wanted && fits(wanted) && exists(wanted)) return wanted;
     }
     return null;
